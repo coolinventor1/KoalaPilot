@@ -11,44 +11,57 @@ from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.common.hardware import HARDWARE
 from openpilot.common.swaglog import cloudlog
+from openpilot.common.koala_hardware import KoalaHardwareInfo, identify_koala_hardware, probe_koala_hardware
 
 
 def get_expected_signature() -> bytes:
   fn = os.path.join(FW_PATH, McuType.H7.config.app_fn)
   return Panda.get_signature_from_firmware(fn)
 
-def flash_panda(panda_serial: str):
+def flash_panda(panda_serial: str) -> KoalaHardwareInfo | None:
   panda = Panda(panda_serial)
-  fw_signature = get_expected_signature()
-  internal_panda = panda.is_internal()
+  try:
+    panda_version = "bootstub" if panda.bootstub else panda.get_version()
+    koala_info = identify_koala_hardware(panda, panda_version)
+    if koala_info is not None:
+      cloudlog.event(
+        "koalapilot.koala_connected",
+        serial=panda_serial,
+        version=panda_version,
+        **koala_info.log_fields(),
+      )
+      return koala_info
 
-  panda_version = "bootstub" if panda.bootstub else panda.get_version()
-  panda_signature = b"" if panda.bootstub else panda.get_signature()
-  cloudlog.warning(f"Panda {panda_serial} connected, version: {panda_version}, signature {panda_signature.hex()[:16]}, expected {fw_signature.hex()[:16]}")
+    fw_signature = get_expected_signature()
+    internal_panda = panda.is_internal()
+    panda_signature = b"" if panda.bootstub else panda.get_signature()
+    cloudlog.warning(f"Panda {panda_serial} connected, version: {panda_version}, signature {panda_signature.hex()[:16]}, expected {fw_signature.hex()[:16]}")
 
-  if panda.bootstub or panda_signature != fw_signature:
-    cloudlog.info("Panda firmware out of date, update required")
-    panda.flash()
-    cloudlog.info("Done flashing")
+    if panda.bootstub or panda_signature != fw_signature:
+      cloudlog.info("Panda firmware out of date, update required")
+      panda.flash()
+      cloudlog.info("Done flashing")
 
-  if panda.bootstub:
-    bootstub_version = panda.get_version()
-    cloudlog.info(f"Flashed firmware not booting, flashing development bootloader. {bootstub_version=}, {internal_panda=}")
-    if internal_panda:
-      HARDWARE.recover_internal_panda()
-    panda.recover(reset=(not internal_panda))
-    cloudlog.info("Done flashing bootstub")
+    if panda.bootstub:
+      bootstub_version = panda.get_version()
+      cloudlog.info(f"Flashed firmware not booting, flashing development bootloader. {bootstub_version=}, {internal_panda=}")
+      if internal_panda:
+        HARDWARE.recover_internal_panda()
+      panda.recover(reset=(not internal_panda))
+      cloudlog.info("Done flashing bootstub")
 
-  if panda.bootstub:
-    cloudlog.info("Panda still not booting, exiting")
-    raise AssertionError
+    if panda.bootstub:
+      cloudlog.info("Panda still not booting, exiting")
+      raise AssertionError
 
-  panda_signature = panda.get_signature()
-  if panda_signature != fw_signature:
-    cloudlog.info("Version mismatch after flashing, exiting")
-    raise AssertionError
+    panda_signature = panda.get_signature()
+    if panda_signature != fw_signature:
+      cloudlog.info("Version mismatch after flashing, exiting")
+      raise AssertionError
 
-  panda.close()
+    return None
+  finally:
+    panda.close()
 
 
 def main() -> None:
@@ -68,6 +81,10 @@ def main() -> None:
   try:
     for s in Panda.list():
       with Panda(s) as p:
+        koala_info = probe_koala_hardware(p)
+        if koala_info is not None:
+          cloudlog.event("koalapilot.koala_detected", serial=s, **koala_info.log_fields())
+          continue
         health = p.health()
         if p.is_internal() and health["heartbeat_lost"]:
           Params().put_bool("PandaHeartbeatLost", True, block=True)
@@ -95,7 +112,11 @@ def main() -> None:
       if len(panda_serials):
         assert len(panda_serials) == 1
         cloudlog.info(f"{len(panda_serials)} panda found, connecting - {panda_serials}")
-        flash_panda(panda_serials[0])
+        koala_info = flash_panda(panda_serials[0])
+        if koala_info is not None:
+          os.environ["KOALAPILOT_DEVICE"] = "koala"
+        else:
+          os.environ.pop("KOALAPILOT_DEVICE", None)
 
         # run real pandad
         os.environ['MANAGER_DAEMON'] = 'pandad'

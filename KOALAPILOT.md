@@ -11,6 +11,12 @@ transport.
 - Koala identifies over USB using Panda-compatible VID/PID values.
 - Koala USB control transfers, hardware identity, firmware version, and serial
   reads have been verified on the RP2350 firmware.
+- KoalaPilot detects the versioned `KOAL` hardware record before evaluating a
+  Panda firmware signature and passes the device family to the runtime through
+  `KOALAPILOT_DEVICE=koala`.
+- Panda STM32H7 automatic flashing is bypassed for a positively identified
+  Koala. A Koala firmware version without a valid hardware record also blocks
+  the Panda update path.
 - Koala implements three MCP2518FD controllers and three MCP2562FD transceivers.
 - USB bulk CAN transfer has not yet been verified end-to-end on a physical
   Koala PCB.
@@ -19,14 +25,13 @@ transport.
 
 ## Compatibility plan
 
-1. Add a Koala-aware USB transport to `pandad`.
-2. Detect Koala explicitly and bypass Panda STM32H7 automatic flashing.
-3. Synchronize health and CAN packet ABIs with the selected openpilot revision.
-4. Verify control transfers, heartbeats, safety-mode changes, and USB bulk CAN
+1. Add a Koala-aware USB transport to the C++ `pandad` runtime.
+2. Synchronize health and CAN packet ABIs with the selected openpilot revision.
+3. Verify control transfers, heartbeats, safety-mode changes, and USB bulk CAN
    using a loopback fixture.
-5. Verify all three CAN buses and fail-safe relay behavior on a populated Koala
+4. Verify all three CAN buses and fail-safe relay behavior on a populated Koala
    PCB before any vehicle integration.
-6. Add automated Koala transport and protocol regression tests.
+5. Add automated Koala transport and protocol regression tests.
 
 ## Repository structure
 
