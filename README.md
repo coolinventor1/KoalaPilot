@@ -1,33 +1,35 @@
 <div align="center" style="text-align: center;">
 
-<h1>openpilot</h1>
+<h1>KoalaPilot</h1>
 
 <p>
-  <b>openpilot is an operating system for robotics.</b>
+  <b>KoalaPilot is an openpilot fork for Koala automotive interface hardware.</b>
   <br>
-  Currently, it upgrades the driver assistance system in 300+ supported cars.
+  The project is adapting openpilot's host communication layer for the
+  RP2350-based Koala three-CAN interface.
 </p>
 
 <h3>
-  <a href="https://docs.comma.ai">Docs</a>
+  <a href="KOALAPILOT.md">Koala compatibility</a>
   <span> · </span>
-  <a href="https://docs.comma.ai/contributing/roadmap/">Roadmap</a>
+  <a href="https://docs.comma.ai">Upstream docs</a>
   <span> · </span>
-  <a href="https://github.com/commaai/openpilot/blob/master/docs/CONTRIBUTING.md">Contribute</a>
-  <span> · </span>
-  <a href="https://discord.comma.ai">Community</a>
-  <span> · </span>
-  <a href="https://comma.ai/shop">Try it on a comma four</a>
+  <a href="https://github.com/commaai/openpilot">Upstream repository</a>
 </h3>
 
-Quick start: `bash <(curl -fsSL openpilot.comma.ai)`
+**Development status:** the fork and project identity are established. Koala is
+not yet a drop-in replacement for Panda; USB bulk-CAN compatibility, firmware
+version handling, and physical-board testing remain in progress.
 
-[![openpilot tests](https://github.com/commaai/openpilot/actions/workflows/tests.yaml/badge.svg)](https://github.com/commaai/openpilot/actions/workflows/tests.yaml)
+[![KoalaPilot tests](https://github.com/coolinventor1/KoalaPilot/actions/workflows/tests.yaml/badge.svg)](https://github.com/coolinventor1/KoalaPilot/actions/workflows/tests.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![X Follow](https://img.shields.io/twitter/follow/comma_ai)](https://x.com/comma_ai)
-[![Discord](https://img.shields.io/discord/469524606043160576)](https://discord.comma.ai)
 
 </div>
+
+KoalaPilot preserves the internal `openpilot` package and directory names for
+upstream compatibility. Public branding and Koala-specific integration use the
+KoalaPilot name. This keeps upstream updates reviewable instead of creating a
+large, fragile mechanical rename.
 
 <table>
   <tr>
@@ -38,7 +40,7 @@ Quick start: `bash <(curl -fsSL openpilot.comma.ai)`
 </table>
 
 
-Using openpilot in a car
+Using upstream openpilot in a car
 ------
 
 To use openpilot in a car, you need four things:
@@ -70,10 +72,10 @@ For [chestnut](https://comma.ai/shop/chestnut), use the following installer URLs
 | `nightly-chestnut`           | installer.comma.ai/commaai/nightly-chestnut                | This is the bleeding edge development branch. Do not expect this to be stable.      |
 | `nightly-chestnut-dev`       | installer.comma.ai/commaai/nightly-chestnut-dev            | Same as nightly, but includes experimental development features for some cars.      |
 
-To start developing openpilot
+To start developing KoalaPilot
 ------
 
-openpilot is developed by [comma](https://comma.ai/) and by users like you. We welcome both pull requests and issues on [GitHub](http://github.com/commaai/openpilot).
+KoalaPilot is developed in this fork. Its foundation is [openpilot](https://github.com/commaai/openpilot), developed by [comma](https://comma.ai/) and its contributors.
 
 * Join the [community Discord](https://discord.comma.ai)
 * Check out [the contributing docs](docs/CONTRIBUTING.md)
