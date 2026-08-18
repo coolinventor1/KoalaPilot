@@ -19,7 +19,8 @@ struct PandaTest : public Panda {
 
 PandaTest::PandaTest(int can_list_size_, cereal::PandaState::PandaType hw_type_) : can_list_size(can_list_size_), Panda() {
   this->hw_type = hw_type_;
-  int data_limit = ((hw_type == cereal::PandaState::PandaType::RED_PANDA) ? std::size(dlc_to_len) : 8);
+  const bool can_fd = hw_type == cereal::PandaState::PandaType::RED_PANDA || hw_type == cereal::PandaState::PandaType::KOALA;
+  int data_limit = can_fd ? std::size(dlc_to_len) : 8;
   // prepare test data
   for (int i = 0; i < data_limit; ++i) {
     int data_len = dlc_to_len[i];
@@ -96,7 +97,8 @@ void PandaTest::test_can_recv(uint32_t rx_chunk_size) {
 }
 
 void test_can_protocol() {
-  for (auto hw_type : {cereal::PandaState::PandaType::DOS, cereal::PandaState::PandaType::RED_PANDA}) {
+  for (auto hw_type : {cereal::PandaState::PandaType::DOS, cereal::PandaState::PandaType::RED_PANDA,
+                       cereal::PandaState::PandaType::KOALA}) {
     for (int can_list_size : {1, 3, 5, 10, 30, 60, 100, 200}) {
       PandaTest send_test(can_list_size, hw_type);
       send_test.test_can_send();

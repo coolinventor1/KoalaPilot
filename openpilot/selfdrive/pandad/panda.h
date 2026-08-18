@@ -13,6 +13,7 @@
 #include "openpilot/cereal/gen/cpp/log.capnp.h"
 #include "panda/board/health.h"
 #include "panda/board/can.h"
+#include "selfdrive/pandad/koala_device.h"
 #include "selfdrive/pandad/panda_comms.h"
 
 #define USB_TX_SOFT_LIMIT   (0x100U)
@@ -45,7 +46,8 @@ struct can_frame {
 
 class Panda {
 private:
-  std::unique_ptr<PandaSpiHandle> handle;
+  std::unique_ptr<PandaCommsHandle> handle;
+  std::optional<KoalaDevice> koala_device;
 
 public:
   Panda(std::string serial);
@@ -55,6 +57,8 @@ public:
   bool connected();
   bool comms_healthy();
   std::string hw_serial();
+  bool is_koala() const { return koala_device.has_value(); }
+  const std::optional<KoalaDevice> &koala() const { return koala_device; }
 
   // Static functions
   static std::vector<std::string> list();

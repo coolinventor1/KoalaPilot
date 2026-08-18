@@ -1,3 +1,4 @@
+import os
 import signal
 import threading
 import functools
@@ -170,11 +171,12 @@ Ignition: {self.simulator_state.ignition} Engaged: {self.simulator_state.is_enga
 
       self.simulated_car.sm.update(0)
       self.simulator_state.is_engaged = self.simulated_car.sm['selfdriveState'].active
+      actuators = self.simulated_car.sm['carControl'].actuators
 
       if self.simulator_state.is_engaged:
-        throttle_op = np.clip(self.simulated_car.sm['carControl'].actuators.accel / 1.6, 0.0, 1.0)
-        brake_op = np.clip(-self.simulated_car.sm['carControl'].actuators.accel / 4.0, 0.0, 1.0)
-        steer_op = self.simulated_car.sm['carControl'].actuators.steeringAngleDeg
+        throttle_op = np.clip(actuators.accel / 1.6, 0.0, 1.0)
+        brake_op = np.clip(-actuators.accel / 4.0, 0.0, 1.0)
+        steer_op = actuators.steeringAngleDeg
 
         self.past_startup_engaged = True
       elif not self.past_startup_engaged and self.simulated_car.sm['selfdriveState'].engageable:
@@ -184,6 +186,17 @@ Ignition: {self.simulator_state.ignition} Engaged: {self.simulator_state.is_enga
       throttle_out = throttle_op if self.simulator_state.is_engaged else throttle_manual
       brake_out = brake_op if self.simulator_state.is_engaged else brake_manual
       steer_out = steer_op if self.simulator_state.is_engaged else steer_manual
+
+      if os.getenv("SIM_DEBUG_CONTROLS") == "1" and self.rk.frame % 100 == 0:
+        debug_state = " ".join((
+          f"SIM_CONTROL v={self.simulator_state.velocity.x:.2f} actual={self.simulator_state.steering_angle:.2f}",
+          f"desired={actuators.steeringAngleDeg:.2f} curvature={actuators.curvature:.5f}",
+          f"torque={actuators.torque:.3f} applied={steer_out:.2f}",
+        ))
+        print(
+          debug_state,
+          flush=True,
+        )
 
       self.world.apply_controls(steer_out, throttle_out, brake_out)
       self.world.read_state()

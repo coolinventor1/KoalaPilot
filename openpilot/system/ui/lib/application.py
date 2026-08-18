@@ -108,6 +108,7 @@ class FontWeight(StrEnum):
   BOLD = "Inter-Bold.ttf"
   SEMI_BOLD = "Inter-SemiBold.ttf"
   UNIFONT = "unifont.otf"
+  AFTER = "After-Regular.ttf"
 
   # Small UI fonts
   DISPLAY_REGULAR = "Inter-Regular.ttf"

@@ -84,7 +84,13 @@ class SelfdriveD:
 
     ignore = self.sensor_packets + self.gps_packets + ['alertDebug', 'lateralManeuverPlan']
     if SIMULATION:
-      ignore += ['cabinCameraState', 'managerState']
+      # Desktop simulation does not publish every hardware camera/sensor stream,
+      # and CPU model inference can run below the production service frequency.
+      # Keep the simulated car usable without relaxing any on-device checks.
+      ignore += ['cabinCameraState', 'wideRoadCameraState', 'managerState',
+                 'modelV2', 'longitudinalPlan', 'deviceMotion', 'extrinsicsCalibration',
+                 'vehicleParameters', 'driverAssistance', 'lateralDelay',
+                 'lateralTorqueParameters']
     if REPLAY:
       # no vipc in replay will make them ignored anyways
       ignore += ['narrowRoadCameraState', 'wideRoadCameraState']
@@ -359,7 +365,7 @@ class SelfdriveD:
           self.events.add(EventName.cameraMalfunction)
         elif not self.sm.all_freq_ok(self.camera_packets):
           self.events.add(EventName.cameraFrameRate)
-    if not REPLAY and self.rk.lagging:
+    if not REPLAY and not SIMULATION and self.rk.lagging:
       self.events.add(EventName.selfdrivedLagging)
     if self.CP.openpilotLongitudinalControl:
       if self.sm['radarState'].radarErrors.canError:
@@ -397,7 +403,7 @@ class SelfdriveD:
     else:
       self.logged_comm_issue = None
 
-    if not self.CP.notCar and not big_model_settling:  # localization has nothing to work with during the load
+    if not self.CP.notCar and not big_model_settling and (not SIMULATION or REPLAY):  # localization has nothing to work with during the load
       if not self.sm['deviceMotion'].posenetOK:
         self.events.add(EventName.posenetInvalid)
       if not self.sm['deviceMotion'].inputsOK:

@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -11,19 +12,32 @@
 #define SPI_BUF_SIZE 2048
 
 
-class PandaSpiHandle {
+class PandaCommsHandle {
 public:
   std::string hw_serial;
   std::atomic<bool> connected = true;
   std::atomic<bool> comms_healthy = true;
 
-  PandaSpiHandle(std::string serial);
-  ~PandaSpiHandle();
+  virtual ~PandaCommsHandle() = default;
 
-  int control_write(uint8_t request, uint16_t param1, uint16_t param2, unsigned int timeout=TIMEOUT);
-  int control_read(uint8_t request, uint16_t param1, uint16_t param2, unsigned char *data, uint16_t length, unsigned int timeout=TIMEOUT);
-  int bulk_write(unsigned char endpoint, unsigned char* data, int length, unsigned int timeout=TIMEOUT);
-  int bulk_read(unsigned char endpoint, unsigned char* data, int length, unsigned int timeout=TIMEOUT);
+  virtual int control_write(uint8_t request, uint16_t param1, uint16_t param2, unsigned int timeout=TIMEOUT) = 0;
+  virtual int control_read(uint8_t request, uint16_t param1, uint16_t param2, unsigned char *data, uint16_t length, unsigned int timeout=TIMEOUT) = 0;
+  virtual int bulk_write(unsigned char endpoint, unsigned char* data, int length, unsigned int timeout=TIMEOUT) = 0;
+  virtual int bulk_read(unsigned char endpoint, unsigned char* data, int length, unsigned int timeout=TIMEOUT) = 0;
+  virtual const char *transport_name() const = 0;
+};
+
+
+class PandaSpiHandle final : public PandaCommsHandle {
+public:
+  PandaSpiHandle(std::string serial);
+  ~PandaSpiHandle() override;
+
+  int control_write(uint8_t request, uint16_t param1, uint16_t param2, unsigned int timeout=TIMEOUT) override;
+  int control_read(uint8_t request, uint16_t param1, uint16_t param2, unsigned char *data, uint16_t length, unsigned int timeout=TIMEOUT) override;
+  int bulk_write(unsigned char endpoint, unsigned char* data, int length, unsigned int timeout=TIMEOUT) override;
+  int bulk_read(unsigned char endpoint, unsigned char* data, int length, unsigned int timeout=TIMEOUT) override;
+  const char *transport_name() const override { return "SPI"; }
   void cleanup();
 
   static std::vector<std::string> list();
@@ -49,4 +63,26 @@ private:
 
   spi_header header;
   uint32_t xfer_count = 0;
+};
+
+
+class KoalaUsbHandle final : public PandaCommsHandle {
+public:
+  explicit KoalaUsbHandle(const std::string &serial);
+  ~KoalaUsbHandle() override;
+
+  int control_write(uint8_t request, uint16_t param1, uint16_t param2, unsigned int timeout=TIMEOUT) override;
+  int control_read(uint8_t request, uint16_t param1, uint16_t param2, unsigned char *data, uint16_t length, unsigned int timeout=TIMEOUT) override;
+  int bulk_write(unsigned char endpoint, unsigned char* data, int length, unsigned int timeout=TIMEOUT) override;
+  int bulk_read(unsigned char endpoint, unsigned char* data, int length, unsigned int timeout=TIMEOUT) override;
+  const char *transport_name() const override { return "Koala USB"; }
+
+  static std::vector<std::string> list();
+
+private:
+  struct Impl;
+  std::unique_ptr<Impl> impl;
+
+  void cleanup();
+  void handle_usb_issue(int err, const char *operation);
 };

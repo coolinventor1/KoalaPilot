@@ -14,24 +14,34 @@ transport.
 - KoalaPilot detects the versioned `KOAL` hardware record before evaluating a
   Panda firmware signature and passes the device family to the runtime through
   `KOALAPILOT_DEVICE=koala`.
+- The existing `pandad` runtime selects `KoalaUsbHandle` in Koala mode,
+  enumerates only devices with a valid `KOAL` record, and retains that record
+  in a first-class `KoalaDevice`. Panda mode continues to use SPI.
+- After positive identification, `pandad` publishes the dedicated `koala`
+  hardware type. The on-device sidebar reports `KOALA ONLINE` while the
+  firmware retains its legacy Red Panda response for third-party compatibility.
 - Panda STM32H7 automatic flashing is bypassed for a positively identified
   Koala. A Koala firmware version without a valid hardware record also blocks
   the Panda update path.
 - Koala implements three MCP2518FD controllers and three MCP2562FD transceivers.
-- USB bulk CAN transfer has not yet been verified end-to-end on a physical
-  Koala PCB.
+- Native USB control and bulk endpoints are now wired into `pandad`; USB bulk
+  CAN transfer has not yet been verified end-to-end on a physical Koala PCB.
+- On-road alerts use bundled ElevenLabs voice prompts for engagement, lane
+  changes, and takeover requests. Speech is generated ahead of time and mixed
+  with the existing alert tones, so no network or API key is required in-car.
+- Park, Reverse, Neutral, and Drive transitions use the supplied HondaDash WAV
+  prompts. The first valid gear reading after startup is intentionally silent.
 - Stock openpilot firmware-signature handling must not attempt to flash Koala
   with STM32H7 Panda firmware.
 
 ## Compatibility plan
 
-1. Add a Koala-aware USB transport to the C++ `pandad` runtime.
-2. Synchronize health and CAN packet ABIs with the selected openpilot revision.
-3. Verify control transfers, heartbeats, safety-mode changes, and USB bulk CAN
+1. Synchronize health and CAN packet ABIs with the selected openpilot revision.
+2. Verify control transfers, heartbeats, safety-mode changes, and USB bulk CAN
    using a loopback fixture.
-4. Verify all three CAN buses and fail-safe relay behavior on a populated Koala
+3. Verify all three CAN buses and fail-safe relay behavior on a populated Koala
    PCB before any vehicle integration.
-5. Add automated Koala transport and protocol regression tests.
+4. Add automated Koala transport and protocol regression tests.
 
 ## Repository structure
 
