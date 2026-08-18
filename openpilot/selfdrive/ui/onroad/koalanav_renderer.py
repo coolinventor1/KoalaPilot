@@ -4,6 +4,7 @@ import numpy as np
 import pyray as rl
 
 from openpilot.selfdrive.locationd.calibrationd import HEIGHT_INIT
+from openpilot.selfdrive.ui.onroad.koalanav_minimap import KoalaNavMiniMap
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.widgets import Widget
@@ -39,6 +40,7 @@ class KoalaNavRenderer(Widget):
     self._car_space_transform = np.zeros((3, 3), dtype=np.float32)
     self._font_medium = gui_app.font(FontWeight.MEDIUM)
     self._font_semi_bold = gui_app.font(FontWeight.SEMI_BOLD)
+    self._mini_map = KoalaNavMiniMap()
 
   def set_transform(self, transform: np.ndarray) -> None:
     self._car_space_transform = transform.astype(np.float32)
@@ -340,3 +342,4 @@ class KoalaNavRenderer(Widget):
     height = float(calibration.height[0]) if calibration.height else float(HEIGHT_INIT[0])
     self._draw_path(rect, nav, height)
     self._draw_instruction(rect, nav)
+    self._mini_map.render(rect, nav)
