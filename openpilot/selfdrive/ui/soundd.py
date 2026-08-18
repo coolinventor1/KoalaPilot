@@ -8,12 +8,14 @@ from openpilot.cereal import log, messaging
 from opendbc.car import structs
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.common.params import Params
 from openpilot.common.realtime import Ratekeeper
 from openpilot.common.utils import retry
 from openpilot.common.swaglog import cloudlog
 
 from openpilot.system import micd
 from openpilot.common.hardware import HARDWARE
+from openpilot.selfdrive.koalanav.voice import navigation_voice_cache_path
 
 SAMPLE_RATE = 48000
 SAMPLE_BUFFER = 4096 # (approx 100ms)
@@ -24,6 +26,7 @@ SELFDRIVE_STATE_TIMEOUT = 5 # 5 seconds
 FILTER_DT = 1. / (micd.SAMPLE_RATE / micd.FFT_SAMPLES)
 VOICE_GAIN = 0.85
 ALERT_DUCK_GAIN = 0.72
+NAVIGATION_VOICE_POLL_S = 0.2
 
 AMBIENT_DB = 26 # DB where MIN_VOLUME is applied
 DB_SCALE = 30 # AMBIENT_DB + DB_SCALE is where MAX_VOLUME is applied
@@ -113,6 +116,15 @@ def check_selfdrive_timeout_alert(sm):
   return False
 
 
+def load_mono_wav(path: str) -> np.ndarray:
+  with wave.open(path, 'r') as wavefile:
+    assert wavefile.getnchannels() == 1
+    assert wavefile.getsampwidth() == 2
+    assert wavefile.getframerate() == SAMPLE_RATE
+    length = wavefile.getnframes()
+    return np.frombuffer(wavefile.readframes(length), dtype=np.int16).astype(np.float32) / (2**16/2)
+
+
 class Soundd:
   def __init__(self):
     self.load_sounds()
@@ -133,6 +145,9 @@ class Soundd:
     self.previous_alert = AudibleAlert.none
     self.previous_lane_change_state = LaneChangeState.off
     self.previous_gear: int | None = None
+    self.params = Params()
+    self.last_navigation_voice_check = 0.0
+    self.last_navigation_voice_id: int | None = None
 
     self.spl_filter_weighted = FirstOrderFilter(0, 2.5, FILTER_DT, initialized=False)
 
@@ -144,22 +159,10 @@ class Soundd:
     for sound in sound_list:
       filename, play_count, volume = sound_list[sound]
 
-      with wave.open(BASEDIR + "/openpilot/selfdrive/assets/sounds/" + filename, 'r') as wavefile:
-        assert wavefile.getnchannels() == 1
-        assert wavefile.getsampwidth() == 2
-        assert wavefile.getframerate() == SAMPLE_RATE
-
-        length = wavefile.getnframes()
-        self.loaded_sounds[sound] = np.frombuffer(wavefile.readframes(length), dtype=np.int16).astype(np.float32) / (2**16/2)
+      self.loaded_sounds[sound] = load_mono_wav(BASEDIR + "/openpilot/selfdrive/assets/sounds/" + filename)
 
     for prompt, (filename, _) in voice_prompt_list.items():
-      with wave.open(BASEDIR + "/openpilot/selfdrive/assets/sounds/" + filename, 'r') as wavefile:
-        assert wavefile.getnchannels() == 1
-        assert wavefile.getsampwidth() == 2
-        assert wavefile.getframerate() == SAMPLE_RATE
-
-        length = wavefile.getnframes()
-        self.loaded_voice_prompts[prompt] = np.frombuffer(wavefile.readframes(length), dtype=np.int16).astype(np.float32) / (2**16/2)
+      self.loaded_voice_prompts[prompt] = load_mono_wav(BASEDIR + "/openpilot/selfdrive/assets/sounds/" + filename)
 
   def get_sound_data(self, frames): # get "frames" worth of data from the current alert sound, looping when required
 
@@ -230,18 +233,51 @@ class Soundd:
       self.current_alert = new_alert
       self.current_sound_frame = 0
 
-  def update_voice_prompt(self, prompt: str | None) -> None:
+  def update_voice_prompt(self, prompt: str | None, priority: int | None = None) -> None:
     if prompt is None:
       return
 
-    priority = voice_prompt_list[prompt][1]
+    priority = voice_prompt_list[prompt][1] if priority is None else priority
     if self.current_voice_prompt is None or priority >= self.current_voice_priority:
       self.current_voice_prompt = prompt
       self.current_voice_frame = 0
       self.current_voice_priority = priority
 
+  def handle_navigation_voice_prompt(self, payload: object) -> None:
+    if not isinstance(payload, dict):
+      return
+    try:
+      prompt_id = int(payload["id"])
+      cache_key = str(payload["cacheKey"])
+      priority = min(79, max(0, int(payload.get("priority", 15))))
+    except (KeyError, TypeError, ValueError):
+      return
+    if prompt_id == self.last_navigation_voice_id:
+      return
+    self.last_navigation_voice_id = prompt_id
+
+    try:
+      path = navigation_voice_cache_path(cache_key)
+      prompt = f"koalanav:{cache_key}"
+      for loaded_prompt in list(self.loaded_voice_prompts):
+        if loaded_prompt.startswith("koalanav:") and loaded_prompt != self.current_voice_prompt:
+          del self.loaded_voice_prompts[loaded_prompt]
+      self.loaded_voice_prompts[prompt] = load_mono_wav(str(path))
+      self.update_voice_prompt(prompt, priority)
+    except (AssertionError, OSError, ValueError) as error:
+      cloudlog.warning(f"KoalaNav navigation voice could not be loaded: {error}")
+
+  def poll_navigation_voice_prompt(self) -> None:
+    now = time.monotonic()
+    if now - self.last_navigation_voice_check < NAVIGATION_VOICE_POLL_S:
+      return
+    self.last_navigation_voice_check = now
+    self.handle_navigation_voice_prompt(self.params.get("KoalaNavVoicePrompt"))
+
   def get_voice_prompt(self, sm) -> None:
     prompts: list[str] = []
+
+    self.poll_navigation_voice_prompt()
 
     if sm.updated['selfdriveState']:
       new_alert = sm['selfdriveState'].alertSound.raw

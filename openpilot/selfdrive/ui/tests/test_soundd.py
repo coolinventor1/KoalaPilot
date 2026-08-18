@@ -1,5 +1,7 @@
 import threading
 from types import SimpleNamespace
+import tempfile
+from pathlib import Path
 import wave
 
 import numpy as np
@@ -83,6 +85,25 @@ class TestSoundd(OpenpilotTestCase):
     soundd.update_voice_prompt("take_over_immediately")
     soundd.update_voice_prompt("openpilot_engaged")
     assert soundd.current_voice_prompt == "take_over_immediately"
+
+  def test_cached_navigation_voice_plays_but_cannot_interrupt_takeover(self, mocker):
+    with tempfile.TemporaryDirectory(prefix="koalanav-soundd-test-") as temp_dir:
+      navigation_wav = Path(temp_dir) / "navigation.wav"
+      with wave.open(str(navigation_wav), "w") as wavefile:
+        wavefile.setnchannels(1)
+        wavefile.setsampwidth(2)
+        wavefile.setframerate(SAMPLE_RATE)
+        wavefile.writeframes(np.zeros(4800, dtype=np.int16).tobytes())
+      mocker.patch("openpilot.selfdrive.ui.soundd.navigation_voice_cache_path", return_value=navigation_wav)
+
+      soundd = Soundd()
+      payload = {"id": 1, "cacheKey": "a" * 64, "priority": 25}
+      soundd.handle_navigation_voice_prompt(payload)
+      assert soundd.current_voice_prompt == f"koalanav:{'a' * 64}"
+
+      soundd.update_voice_prompt("take_over_immediately")
+      soundd.handle_navigation_voice_prompt({**payload, "id": 2})
+      assert soundd.current_voice_prompt == "take_over_immediately"
 
   def test_critical_tone_remains_mixed_with_takeover_speech(self):
     mixed_soundd = Soundd()

@@ -175,10 +175,19 @@ curvature or torque, it is not a consumer of `carControl`, and
 intent is isolated in `openpilot/selfdrive/koalanav/turn_desire.py`; normal
 openpilot driving remains unchanged.
 
-Enable it only for development with `KoalaNavEnabled=1`. A future GPS/navigation
-frontend must publish an ordered Float64 route geometry after `koalanavd` starts
-and refresh its next maneuver at 1 Hz. The provider contract and builders live
-in `openpilot/selfdrive/koalanav/navigation_input.py`.
+Enable it only for development with `KoalaNavEnabled=1`. The navigation
+frontend is implemented in `koalanav_providerd`: it requests Mapbox
+Directions geometry for `KoalaNavDestination`, publishes the route after
+`koalanavd` starts, and refreshes the next maneuver at 1 Hz. It requires a
+Mapbox token. The provider contract and builders remain in
+`openpilot/selfdrive/koalanav/navigation_input.py`.
+
+The provider pre-generates advance and near-turn speech for the next two
+maneuvers using ElevenLabs, caches the resulting 48 kHz mono WAV files, and
+signals `soundd` through a non-logged transient parameter. Credentials are read
+from environment variables or non-logged parameters and are never committed.
+`ffmpeg` is required for MP3-to-WAV conversion. Navigation speech priority is
+below gear, lane-change, takeover, and immediate-warning speech.
 
 ## Simulator status
 
@@ -278,8 +287,8 @@ Keep the car disconnected for the first tests.
 - Relay contact routing and timing on the assembled PCB.
 - Native-Ubuntu simulator performance and audio-device behavior.
 - Actual lateral-control steering in MetaDrive with `SIM_LANE_ASSIST=0`.
-- A real navigation frontend for `koalaNavRoute` and `koalaNavInstruction`,
-  followed by recorded-route and simulator validation of KoalaNav shadow plans.
+- A Mapbox access token and live destination test, followed by recorded-route
+  and simulator validation of KoalaNav shadow plans and spoken timing.
 - Automated regression tests for USB disconnects, heartbeat loss, malformed
   hardware records, CAN framing, and relay/TX gate independence.
 

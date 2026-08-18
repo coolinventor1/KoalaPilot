@@ -9,7 +9,7 @@ from openpilot.selfdrive.koalanav.navigation_input import instruction_from_messa
 from openpilot.selfdrive.koalanav.planner import GpsFix, KoalaNavPlanner
 
 
-GPS_SERVICES = ("gpsLocationExternal", "gpsLocation")
+GPS_SERVICES = ("gpsLocationExternal",)
 NAV_SERVICES = ("koalaNavRoute", "koalaNavInstruction")
 GPS_MAX_AGE_S = 2.5
 INSTRUCTION_MAX_AGE_S = 5.0

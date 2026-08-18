@@ -37,6 +37,11 @@ transport.
   maneuver instructions on dedicated cereal services. It publishes a checked
   10 Hz shadow plan but has no connection to the normal openpilot control path.
   Its `controlAllowed` output is always false.
+- `koalanav_providerd` converts Mapbox Directions geometry and maneuver steps
+  into those KoalaNav messages. It also prepares and caches two ElevenLabs
+  announcements per upcoming turn: an advance instruction and a near-turn
+  `Now turn ... onto ...` instruction. Navigation speech cannot interrupt
+  takeover or immediate-warning prompts.
 
 ## Compatibility plan
 
