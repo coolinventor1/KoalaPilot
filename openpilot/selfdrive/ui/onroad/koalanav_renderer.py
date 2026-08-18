@@ -9,9 +9,16 @@ from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.widgets import Widget
 
 
-PATH_COLOR = rl.Color(55, 205, 255, 205)
-PATH_GLOW_COLOR = rl.Color(20, 120, 180, 100)
-MARKER_COLOR = rl.Color(255, 191, 64, 255)
+PATH_COLOR = rl.Color(36, 198, 255, 205)
+PATH_GLOW_COLOR = rl.Color(7, 65, 92, 155)
+PATH_WIDTH_M = 0.42
+PATH_GLOW_WIDTH_M = 0.72
+ARROW_BODY_WIDTH_M = 0.90
+ARROW_BODY_GLOW_WIDTH_M = 1.25
+ARROW_TIP_DISTANCE_M = 17.0
+ARROW_LENGTH_M = 8.0
+ARROW_WIDTH_M = 2.45
+ARROW_GLOW_WIDTH_M = 2.90
 PANEL_COLOR = rl.Color(0, 0, 0, 185)
 PANEL_BORDER_COLOR = rl.Color(55, 205, 255, 210)
 TEXT_COLOR = rl.Color(255, 255, 255, 255)
@@ -54,21 +61,126 @@ class KoalaNavRenderer(Widget):
       return None
     return rl.Vector2(x, y)
 
+  @staticmethod
+  def _offset_path(points: list[tuple[float, float]], width_m: float) -> tuple[list[tuple[float, float]],
+                                                                                 list[tuple[float, float]]]:
+    """Return both edges of a constant-width path in car space."""
+    edge_a: list[tuple[float, float]] = []
+    edge_b: list[tuple[float, float]] = []
+    half_width = width_m / 2.0
+
+    for i, (forward, left) in enumerate(points):
+      previous = points[max(0, i - 1)]
+      following = points[min(len(points) - 1, i + 1)]
+      tangent_forward = following[0] - previous[0]
+      tangent_left = following[1] - previous[1]
+      tangent_length = float(np.hypot(tangent_forward, tangent_left))
+      if tangent_length < 1e-3:
+        normal_forward, normal_left = 0.0, 1.0
+      else:
+        normal_forward = -tangent_left / tangent_length
+        normal_left = tangent_forward / tangent_length
+
+      edge_a.append((forward + normal_forward * half_width, left + normal_left * half_width))
+      edge_b.append((forward - normal_forward * half_width, left - normal_left * half_width))
+
+    return edge_a, edge_b
+
+  @staticmethod
+  def _split_for_arrow(points: list[tuple[float, float]], arrow_length_m: float) -> tuple[
+      list[tuple[float, float]], tuple[float, float], tuple[float, float]]:
+    """Split a path at a point measured back from its tip."""
+    if len(points) < 2:
+      return points, points[-1], points[-1]
+
+    remaining = arrow_length_m
+    for i in range(len(points) - 1, 0, -1):
+      start = points[i - 1]
+      end = points[i]
+      segment_length = float(np.hypot(end[0] - start[0], end[1] - start[1]))
+      if segment_length < 1e-3:
+        continue
+      if segment_length >= remaining:
+        fraction = (segment_length - remaining) / segment_length
+        base = (start[0] + (end[0] - start[0]) * fraction,
+                start[1] + (end[1] - start[1]) * fraction)
+        return [*points[:i], base], base, points[-1]
+      remaining -= segment_length
+
+    return [points[0]], points[0], points[-1]
+
+  @staticmethod
+  def _path_prefix(points: list[tuple[float, float]], distance_m: float) -> list[tuple[float, float]]:
+    """Clip a path at a distance measured from its first point."""
+    if len(points) < 2:
+      return points
+
+    prefix = [points[0]]
+    remaining = distance_m
+    for start, end in zip(points, points[1:], strict=False):
+      segment_length = float(np.hypot(end[0] - start[0], end[1] - start[1]))
+      if segment_length < 1e-3:
+        continue
+      if segment_length >= remaining:
+        fraction = remaining / segment_length
+        prefix.append((start[0] + (end[0] - start[0]) * fraction,
+                       start[1] + (end[1] - start[1]) * fraction))
+        return prefix
+      prefix.append(end)
+      remaining -= segment_length
+
+    return prefix
+
+  def _draw_road_ribbon(self, rect: rl.Rectangle, points: list[tuple[float, float]], height: float,
+                        width_m: float, color: rl.Color) -> None:
+    if len(points) < 2:
+      return
+
+    edge_a, edge_b = self._offset_path(points, width_m)
+    projected_a = [self._project(forward, left, height, rect) for forward, left in edge_a]
+    projected_b = [self._project(forward, left, height, rect) for forward, left in edge_b]
+
+    # Paint far-to-near so translucent sections overlap like one continuous road marking.
+    for i in range(len(points) - 2, -1, -1):
+      a0, a1 = projected_a[i], projected_a[i + 1]
+      b0, b1 = projected_b[i], projected_b[i + 1]
+      if a0 is None or a1 is None or b0 is None or b1 is None:
+        continue
+      rl.draw_triangle(a0, b0, a1, color)
+      rl.draw_triangle(a1, b0, b1, color)
+
+  def _draw_arrow_head(self, rect: rl.Rectangle, base: tuple[float, float], tip: tuple[float, float],
+                       height: float, width_m: float, color: rl.Color) -> None:
+    tangent_forward = tip[0] - base[0]
+    tangent_left = tip[1] - base[1]
+    tangent_length = float(np.hypot(tangent_forward, tangent_left))
+    if tangent_length < 1e-3:
+      return
+
+    normal_forward = -tangent_left / tangent_length
+    normal_left = tangent_forward / tangent_length
+    half_width = width_m / 2.0
+    base_a = self._project(base[0] + normal_forward * half_width,
+                           base[1] + normal_left * half_width, height, rect)
+    base_b = self._project(base[0] - normal_forward * half_width,
+                           base[1] - normal_left * half_width, height, rect)
+    projected_tip = self._project(tip[0], tip[1], height, rect)
+    if base_a is not None and base_b is not None and projected_tip is not None:
+      rl.draw_triangle(base_a, base_b, projected_tip, color)
+
   def _draw_path(self, rect: rl.Rectangle, nav, height: float) -> None:
     points = [(float(point.forward), float(point.left)) for point in nav.shadowPath]
-    for (forward_a, left_a), (forward_b, left_b) in zip(points, points[1:], strict=False):
-      start = self._project(forward_a, left_a, height, rect)
-      end = self._project(forward_b, left_b, height, rect)
-      if start is None or end is None:
-        continue
-      rl.draw_line_ex(start, end, 18.0, PATH_GLOW_COLOR)
-      rl.draw_line_ex(start, end, 8.0, PATH_COLOR)
+    arrow_path = self._path_prefix(points, ARROW_TIP_DISTANCE_M)
+    arrow_body, arrow_base, arrow_tip = self._split_for_arrow(arrow_path, ARROW_LENGTH_M)
 
-    if nav.maneuverPointValid:
-      marker = self._project(float(nav.maneuverForward), float(nav.maneuverLeft), height, rect)
-      if marker is not None:
-        rl.draw_circle(int(marker.x), int(marker.y), 22.0, rl.Color(0, 0, 0, 180))
-        rl.draw_circle(int(marker.x), int(marker.y), 14.0, MARKER_COLOR)
+    # The narrow route remains visible through distant curves while the nearby arrow
+    # gives the driver a clear road-anchored direction cue.
+    self._draw_road_ribbon(rect, points, height, PATH_GLOW_WIDTH_M, PATH_GLOW_COLOR)
+    self._draw_road_ribbon(rect, points, height, PATH_WIDTH_M, PATH_COLOR)
+    self._draw_road_ribbon(rect, arrow_body, height, ARROW_BODY_GLOW_WIDTH_M, PATH_GLOW_COLOR)
+    self._draw_arrow_head(rect, arrow_base, arrow_tip, height, ARROW_GLOW_WIDTH_M, PATH_GLOW_COLOR)
+    self._draw_road_ribbon(rect, arrow_body, height, ARROW_BODY_WIDTH_M, PATH_COLOR)
+    self._draw_arrow_head(rect, arrow_base, arrow_tip, height, ARROW_WIDTH_M, PATH_COLOR)
 
   def _draw_instruction(self, rect: rl.Rectangle, nav) -> None:
     panel_width = min(460.0, rect.width - 60.0)
