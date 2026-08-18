@@ -9,22 +9,16 @@ from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.widgets import Widget
 
 
-PATH_COLOR = rl.Color(36, 198, 255, 205)
-PATH_GLOW_COLOR = rl.Color(7, 65, 92, 155)
+PATH_COLOR = rl.Color(36, 198, 255, 145)
 PATH_WIDTH_M = 0.42
-PATH_GLOW_WIDTH_M = 0.72
 ARROW_BODY_WIDTH_M = 0.90
-ARROW_BODY_GLOW_WIDTH_M = 1.25
 ARROW_TIP_DISTANCE_M = 17.0
 ARROW_LENGTH_M = 8.0
 ARROW_WIDTH_M = 2.45
-ARROW_GLOW_WIDTH_M = 2.90
 TURN_ARROW_AFTER_MANEUVER_M = 10.0
 TURN_ARROW_LENGTH_M = 10.0
 TURN_ARROW_WIDTH_M = 12.0
-TURN_ARROW_GLOW_WIDTH_M = 14.0
 TURN_ARROW_MIN_SCREEN_WIDTH = 28.0
-TURN_ARROW_GLOW_MIN_SCREEN_WIDTH = 36.0
 PANEL_COLOR = rl.Color(0, 0, 0, 185)
 PANEL_BORDER_COLOR = rl.Color(55, 205, 255, 210)
 TEXT_COLOR = rl.Color(255, 255, 255, 255)
@@ -120,6 +114,8 @@ class KoalaNavRenderer(Widget):
     """Clip a path at a distance measured from its first point."""
     if len(points) < 2:
       return points
+    if distance_m <= 0.0:
+      return [points[0]]
 
     prefix = [points[0]]
     remaining = distance_m
@@ -136,6 +132,26 @@ class KoalaNavRenderer(Widget):
       remaining -= segment_length
 
     return prefix
+
+  @staticmethod
+  def _path_suffix(points: list[tuple[float, float]], distance_m: float) -> list[tuple[float, float]]:
+    """Clip the beginning of a path at a distance measured from its first point."""
+    if len(points) < 2 or distance_m <= 0.0:
+      return points
+
+    remaining = distance_m
+    for i, (start, end) in enumerate(zip(points, points[1:], strict=False)):
+      segment_length = float(np.hypot(end[0] - start[0], end[1] - start[1]))
+      if segment_length < 1e-3:
+        continue
+      if segment_length >= remaining:
+        fraction = remaining / segment_length
+        split = (start[0] + (end[0] - start[0]) * fraction,
+                 start[1] + (end[1] - start[1]) * fraction)
+        return [split, *points[i + 1:]]
+      remaining -= segment_length
+
+    return [points[-1]]
 
   @staticmethod
   def _distance_along_path_nearest(points: list[tuple[float, float]], target: tuple[float, float]) -> float:
@@ -204,24 +220,28 @@ class KoalaNavRenderer(Widget):
     arrow_path = self._path_prefix(points, ARROW_TIP_DISTANCE_M)
     arrow_body, arrow_base, arrow_tip = self._split_for_arrow(arrow_path, ARROW_LENGTH_M)
 
-    # The narrow route remains visible through distant curves while the nearby arrow
-    # gives the driver a clear road-anchored direction cue.
-    self._draw_road_ribbon(rect, points, height, PATH_GLOW_WIDTH_M, PATH_GLOW_COLOR)
-    self._draw_road_ribbon(rect, points, height, PATH_WIDTH_M, PATH_COLOR)
-    self._draw_road_ribbon(rect, arrow_body, height, ARROW_BODY_GLOW_WIDTH_M, PATH_GLOW_COLOR)
-    self._draw_arrow_head(rect, arrow_base, arrow_tip, height, ARROW_GLOW_WIDTH_M, PATH_GLOW_COLOR)
+    # Draw each translucent region once so overlapping alpha does not create dark seams.
     self._draw_road_ribbon(rect, arrow_body, height, ARROW_BODY_WIDTH_M, PATH_COLOR)
     self._draw_arrow_head(rect, arrow_base, arrow_tip, height, ARROW_WIDTH_M, PATH_COLOR)
 
     if nav.maneuverPointValid:
       maneuver = (float(nav.maneuverForward), float(nav.maneuverLeft))
       maneuver_distance = self._distance_along_path_nearest(points, maneuver)
-      turn_arrow_path = self._path_prefix(points, maneuver_distance + TURN_ARROW_AFTER_MANEUVER_M)
+      turn_tip_distance = maneuver_distance + TURN_ARROW_AFTER_MANEUVER_M
+      turn_base_distance = turn_tip_distance - TURN_ARROW_LENGTH_M
+      route_before_turn = self._path_prefix(self._path_suffix(points, ARROW_TIP_DISTANCE_M),
+                                            max(0.0, turn_base_distance - ARROW_TIP_DISTANCE_M))
+      self._draw_road_ribbon(rect, route_before_turn, height, PATH_WIDTH_M, PATH_COLOR)
+
+      turn_arrow_path = self._path_prefix(points, turn_tip_distance)
       _, turn_arrow_base, turn_arrow_tip = self._split_for_arrow(turn_arrow_path, TURN_ARROW_LENGTH_M)
       self._draw_arrow_head(rect, turn_arrow_base, turn_arrow_tip, height,
-                            TURN_ARROW_GLOW_WIDTH_M, PATH_GLOW_COLOR, TURN_ARROW_GLOW_MIN_SCREEN_WIDTH)
-      self._draw_arrow_head(rect, turn_arrow_base, turn_arrow_tip, height,
                             TURN_ARROW_WIDTH_M, PATH_COLOR, TURN_ARROW_MIN_SCREEN_WIDTH)
+      self._draw_road_ribbon(rect, self._path_suffix(points, turn_tip_distance), height,
+                             PATH_WIDTH_M, PATH_COLOR)
+    else:
+      self._draw_road_ribbon(rect, self._path_suffix(points, ARROW_TIP_DISTANCE_M), height,
+                             PATH_WIDTH_M, PATH_COLOR)
 
   def _draw_instruction(self, rect: rl.Rectangle, nav) -> None:
     panel_width = min(460.0, rect.width - 60.0)
