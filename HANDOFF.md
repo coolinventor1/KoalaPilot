@@ -24,17 +24,16 @@ Repository:
 - Windows path: `C:\Users\Owner\Documents\Codex\2026-08-11\codex-mcp-add-flux-url-https\KoalaPilot`
 - Intended Ubuntu path: `~/KoalaPilot`
 - Branch: `agent/koala-awareness`
-- Current committed base: `d9c394d1cf48b85bae0548e63248bc8ddcfc680b`
-- Commit title: `Recognize Koala hardware before Panda updates`
+- Current integration commit: `55a27a44a3fa7f1987692d4342775370cfbc77e7`
+- Commit title: `Complete Koala integration and Ubuntu handoff`
 - `origin`: `https://github.com/coolinventor1/KoalaPilot.git`
 - `upstream`: `https://github.com/commaai/openpilot.git`
 
-Important: the latest Koala USB transport, UI, audio, and simulator work is
-still present as uncommitted changes in the Windows working tree. A fresh clone
-of GitHub alone will not contain all of it. Preserve or transfer the entire
-working tree, including untracked files, before relying on Ubuntu.
+The latest Koala USB transport, UI, audio, simulator work, and this handoff are
+committed and pushed to `origin/agent/koala-awareness`. A recursive clone of
+that branch includes the intended project files and Git LFS assets.
 
-Important untracked source/assets include:
+Key files added by the integration commit include:
 
 - `openpilot/selfdrive/pandad/koala_device.cc`
 - `openpilot/selfdrive/pandad/koala_device.h`
@@ -261,7 +260,6 @@ Keep the car disconnected for the first tests.
 - Relay contact routing and timing on the assembled PCB.
 - Native-Ubuntu simulator performance and audio-device behavior.
 - Actual lateral-control steering in MetaDrive with `SIM_LANE_ASSIST=0`.
-- A clean, reviewed commit of all current modified and untracked source/assets.
 - Automated regression tests for USB disconnects, heartbeat loss, malformed
   hardware records, CAN framing, and relay/TX gate independence.
 
@@ -271,7 +269,7 @@ Use this after opening `~/KoalaPilot` in Codex:
 
 > Read HANDOFF.md and KOALAPILOT.md completely. Also inspect the sibling
 > firmware/koala_panda/README.md if that folder is available. Preserve all
-> existing uncommitted work. First verify the Git branch and working-tree state,
+> existing project work. First verify the Git branch and working-tree state,
 > then set up native Ubuntu and launch the MetaDrive simulator. Report actual
 > UI frame rate, audio-device errors, model/service health, and whether steering
 > works with SIM_LANE_ASSIST=0. Do not treat the lane-assist helper as proof of
