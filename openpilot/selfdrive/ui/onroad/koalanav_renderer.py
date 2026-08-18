@@ -12,6 +12,7 @@ from openpilot.system.ui.widgets import Widget
 PATH_COLOR = rl.Color(36, 198, 255, 145)
 PATH_WIDTH_M = 0.42
 ARROW_BODY_WIDTH_M = 0.90
+ARROW_TAIL_FORWARD_M = 1.5
 ARROW_TIP_DISTANCE_M = 17.0
 ARROW_LENGTH_M = 8.0
 ARROW_WIDTH_M = 2.45
@@ -154,6 +155,21 @@ class KoalaNavRenderer(Widget):
     return [points[-1]]
 
   @staticmethod
+  def _extend_tail_to_camera(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Start the arrow below the camera viewport so its tail has no visible endpoint."""
+    if len(points) < 2 or points[0][0] >= ARROW_TAIL_FORWARD_M:
+      return points
+
+    first, following = points[0], points[1]
+    forward_delta = following[0] - first[0]
+    if abs(forward_delta) < 1e-3:
+      tail_left = first[1]
+    else:
+      fraction = (ARROW_TAIL_FORWARD_M - first[0]) / forward_delta
+      tail_left = first[1] + (following[1] - first[1]) * fraction
+    return [(ARROW_TAIL_FORWARD_M, tail_left), *points[1:]]
+
+  @staticmethod
   def _distance_along_path_nearest(points: list[tuple[float, float]], target: tuple[float, float]) -> float:
     """Return path distance to the sampled point closest to a car-space target."""
     nearest_distance = 0.0
@@ -219,6 +235,7 @@ class KoalaNavRenderer(Widget):
     points = [(float(point.forward), float(point.left)) for point in nav.shadowPath]
     arrow_path = self._path_prefix(points, ARROW_TIP_DISTANCE_M)
     arrow_body, arrow_base, arrow_tip = self._split_for_arrow(arrow_path, ARROW_LENGTH_M)
+    arrow_body = self._extend_tail_to_camera(arrow_body)
 
     # Draw each translucent region once so overlapping alpha does not create dark seams.
     self._draw_road_ribbon(rect, arrow_body, height, ARROW_BODY_WIDTH_M, PATH_COLOR)
