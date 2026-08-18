@@ -10,6 +10,11 @@ from openpilot.system.ui.widgets import Widget
 
 
 PATH_COLOR = rl.Color(36, 198, 255, 145)
+ARROW_TAIL_ALPHA = 70
+ARROW_BASE_ALPHA = 135
+ARROW_TIP_ALPHA = 165
+ROUTE_NEAR_ALPHA = 120
+ROUTE_FAR_ALPHA = 80
 PATH_WIDTH_M = 0.42
 ARROW_BODY_WIDTH_M = 0.90
 ARROW_TAIL_FORWARD_M = 1.5
@@ -186,7 +191,8 @@ class KoalaNavRenderer(Widget):
     return nearest_distance
 
   def _draw_road_ribbon(self, rect: rl.Rectangle, points: list[tuple[float, float]], height: float,
-                        width_m: float, color: rl.Color) -> None:
+                        width_m: float, color: rl.Color, start_alpha: int | None = None,
+                        end_alpha: int | None = None) -> None:
     if len(points) < 2:
       return
 
@@ -194,17 +200,44 @@ class KoalaNavRenderer(Widget):
     projected_a = [self._project(forward, left, height, rect) for forward, left in edge_a]
     projected_b = [self._project(forward, left, height, rect) for forward, left in edge_b]
 
+    distances = [0.0]
+    for start, end in zip(points, points[1:], strict=False):
+      distances.append(distances[-1] + float(np.hypot(end[0] - start[0], end[1] - start[1])))
+    total_distance = max(distances[-1], 1e-3)
+    alpha_start = color.a if start_alpha is None else start_alpha
+    alpha_end = color.a if end_alpha is None else end_alpha
+    alphas = [round(alpha_start + (alpha_end - alpha_start) * distance / total_distance) for distance in distances]
+
+    texture = rl.get_shapes_texture()
+    source = rl.get_shapes_texture_rectangle()
+    texture_u = (source.x + source.width / 2.0) / texture.width
+    texture_v = (source.y + source.height / 2.0) / texture.height
+
+    def vertex(point: rl.Vector2, alpha: int) -> None:
+      rl.rl_color4ub(color.r, color.g, color.b, alpha)
+      rl.rl_tex_coord2f(texture_u, texture_v)
+      rl.rl_vertex2f(point.x, point.y)
+
     # Paint far-to-near so translucent sections overlap like one continuous road marking.
+    rl.rl_set_texture(texture.id)
+    rl.rl_begin(rl.RL_TRIANGLES)
     for i in range(len(points) - 2, -1, -1):
       a0, a1 = projected_a[i], projected_a[i + 1]
       b0, b1 = projected_b[i], projected_b[i + 1]
       if a0 is None or a1 is None or b0 is None or b1 is None:
         continue
-      rl.draw_triangle(a0, b0, a1, color)
-      rl.draw_triangle(a1, b0, b1, color)
+      vertex(a0, alphas[i])
+      vertex(b0, alphas[i])
+      vertex(a1, alphas[i + 1])
+      vertex(a1, alphas[i + 1])
+      vertex(b0, alphas[i])
+      vertex(b1, alphas[i + 1])
+    rl.rl_end()
+    rl.rl_set_texture(0)
 
   def _draw_arrow_head(self, rect: rl.Rectangle, base: tuple[float, float], tip: tuple[float, float],
-                       height: float, width_m: float, color: rl.Color, min_screen_width: float = 0.0) -> None:
+                       height: float, width_m: float, color: rl.Color, min_screen_width: float = 0.0,
+                       base_alpha: int | None = None, tip_alpha: int | None = None) -> None:
     tangent_forward = tip[0] - base[0]
     tangent_left = tip[1] - base[1]
     tangent_length = float(np.hypot(tangent_forward, tangent_left))
@@ -229,7 +262,20 @@ class KoalaNavRenderer(Widget):
                             center_y + (base_a.y - center_y) * scale)
         base_b = rl.Vector2(center_x + (base_b.x - center_x) * scale,
                             center_y + (base_b.y - center_y) * scale)
-      rl.draw_triangle(base_a, base_b, projected_tip, color)
+      texture = rl.get_shapes_texture()
+      source = rl.get_shapes_texture_rectangle()
+      texture_u = (source.x + source.width / 2.0) / texture.width
+      texture_v = (source.y + source.height / 2.0) / texture.height
+      rl.rl_set_texture(texture.id)
+      rl.rl_begin(rl.RL_TRIANGLES)
+      for point, alpha in ((base_a, color.a if base_alpha is None else base_alpha),
+                           (base_b, color.a if base_alpha is None else base_alpha),
+                           (projected_tip, color.a if tip_alpha is None else tip_alpha)):
+        rl.rl_color4ub(color.r, color.g, color.b, alpha)
+        rl.rl_tex_coord2f(texture_u, texture_v)
+        rl.rl_vertex2f(point.x, point.y)
+      rl.rl_end()
+      rl.rl_set_texture(0)
 
   def _draw_path(self, rect: rl.Rectangle, nav, height: float) -> None:
     points = [(float(point.forward), float(point.left)) for point in nav.shadowPath]
@@ -238,8 +284,10 @@ class KoalaNavRenderer(Widget):
     arrow_body = self._extend_tail_to_camera(arrow_body)
 
     # Draw each translucent region once so overlapping alpha does not create dark seams.
-    self._draw_road_ribbon(rect, arrow_body, height, ARROW_BODY_WIDTH_M, PATH_COLOR)
-    self._draw_arrow_head(rect, arrow_base, arrow_tip, height, ARROW_WIDTH_M, PATH_COLOR)
+    self._draw_road_ribbon(rect, arrow_body, height, ARROW_BODY_WIDTH_M, PATH_COLOR,
+                           ARROW_TAIL_ALPHA, ARROW_BASE_ALPHA)
+    self._draw_arrow_head(rect, arrow_base, arrow_tip, height, ARROW_WIDTH_M, PATH_COLOR,
+                          base_alpha=ARROW_BASE_ALPHA, tip_alpha=ARROW_TIP_ALPHA)
 
     if nav.maneuverPointValid:
       maneuver = (float(nav.maneuverForward), float(nav.maneuverLeft))
@@ -248,17 +296,19 @@ class KoalaNavRenderer(Widget):
       turn_base_distance = turn_tip_distance - TURN_ARROW_LENGTH_M
       route_before_turn = self._path_prefix(self._path_suffix(points, ARROW_TIP_DISTANCE_M),
                                             max(0.0, turn_base_distance - ARROW_TIP_DISTANCE_M))
-      self._draw_road_ribbon(rect, route_before_turn, height, PATH_WIDTH_M, PATH_COLOR)
+      self._draw_road_ribbon(rect, route_before_turn, height, PATH_WIDTH_M, PATH_COLOR,
+                             ROUTE_NEAR_ALPHA, ROUTE_FAR_ALPHA)
 
       turn_arrow_path = self._path_prefix(points, turn_tip_distance)
       _, turn_arrow_base, turn_arrow_tip = self._split_for_arrow(turn_arrow_path, TURN_ARROW_LENGTH_M)
       self._draw_arrow_head(rect, turn_arrow_base, turn_arrow_tip, height,
-                            TURN_ARROW_WIDTH_M, PATH_COLOR, TURN_ARROW_MIN_SCREEN_WIDTH)
+                            TURN_ARROW_WIDTH_M, PATH_COLOR, TURN_ARROW_MIN_SCREEN_WIDTH,
+                            ARROW_BASE_ALPHA, ARROW_TIP_ALPHA)
       self._draw_road_ribbon(rect, self._path_suffix(points, turn_tip_distance), height,
-                             PATH_WIDTH_M, PATH_COLOR)
+                             PATH_WIDTH_M, PATH_COLOR, ROUTE_NEAR_ALPHA, ROUTE_FAR_ALPHA)
     else:
       self._draw_road_ribbon(rect, self._path_suffix(points, ARROW_TIP_DISTANCE_M), height,
-                             PATH_WIDTH_M, PATH_COLOR)
+                             PATH_WIDTH_M, PATH_COLOR, ROUTE_NEAR_ALPHA, ROUTE_FAR_ALPHA)
 
   def _draw_instruction(self, rect: rl.Rectangle, nav) -> None:
     panel_width = min(460.0, rect.width - 60.0)
