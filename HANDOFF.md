@@ -24,8 +24,7 @@ Repository:
 - Windows path: `C:\Users\Owner\Documents\Codex\2026-08-11\codex-mcp-add-flux-url-https\KoalaPilot`
 - Intended Ubuntu path: `~/KoalaPilot`
 - Branch: `agent/koala-awareness`
-- Current integration commit: `55a27a44a3fa7f1987692d4342775370cfbc77e7`
-- Commit title: `Complete Koala integration and Ubuntu handoff`
+- Pre-KoalaNav integration baseline: `902b3f930df1c2bde0ad3a4dad10181d711f6ff9`
 - `origin`: `https://github.com/coolinventor1/KoalaPilot.git`
 - `upstream`: `https://github.com/commaai/openpilot.git`
 
@@ -162,6 +161,25 @@ Confirmed on standalone firmware does not yet equal confirmed through the
 KoalaPilot `pandad` path. USB bulk CAN transfer has not been proven end to end
 with a populated Koala Rev0.3 board.
 
+## KoalaNav foundation
+
+KoalaNav is implemented as a separate, default-off `koalanavd` process. It
+prefers `gpsLocationExternal`, falls back to `gpsLocation`, and consumes two
+dedicated provider messages: `koalaNavRoute` and `koalaNavInstruction`. It
+publishes `koalaNavPlan` at 10 Hz with route matching, GPS-derived distance,
+turn angle, confidence, and waiting/monitoring/approach/ready/aborted states.
+
+The implementation is intentionally shadow-only. It does not publish steering
+curvature or torque, it is not a consumer of `carControl`, and
+`koalaNavPlan.controlAllowed` is unconditionally false. The high-level turn
+intent is isolated in `openpilot/selfdrive/koalanav/turn_desire.py`; normal
+openpilot driving remains unchanged.
+
+Enable it only for development with `KoalaNavEnabled=1`. A future GPS/navigation
+frontend must publish an ordered Float64 route geometry after `koalanavd` starts
+and refresh its next maneuver at 1 Hz. The provider contract and builders live
+in `openpilot/selfdrive/koalanav/navigation_input.py`.
+
 ## Simulator status
 
 The MetaDrive simulator was run under WSL, but rendering was laggy and the car
@@ -260,6 +278,8 @@ Keep the car disconnected for the first tests.
 - Relay contact routing and timing on the assembled PCB.
 - Native-Ubuntu simulator performance and audio-device behavior.
 - Actual lateral-control steering in MetaDrive with `SIM_LANE_ASSIST=0`.
+- A real navigation frontend for `koalaNavRoute` and `koalaNavInstruction`,
+  followed by recorded-route and simulator validation of KoalaNav shadow plans.
 - Automated regression tests for USB disconnects, heartbeat loss, malformed
   hardware records, CAN framing, and relay/TX gate independence.
 

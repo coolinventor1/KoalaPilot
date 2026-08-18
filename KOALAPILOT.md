@@ -33,6 +33,10 @@ transport.
   prompts. The first valid gear reading after startup is intentionally silent.
 - Stock openpilot firmware-signature handling must not attempt to flash Koala
   with STM32H7 Panda firmware.
+- The default-off `koalanavd` foundation consumes GPS, route geometry, and
+  maneuver instructions on dedicated cereal services. It publishes a checked
+  10 Hz shadow plan but has no connection to the normal openpilot control path.
+  Its `controlAllowed` output is always false.
 
 ## Compatibility plan
 
@@ -42,6 +46,8 @@ transport.
 3. Verify all three CAN buses and fail-safe relay behavior on a populated Koala
    PCB before any vehicle integration.
 4. Add automated Koala transport and protocol regression tests.
+5. Feed recorded navigation routes through KoalaNav in replay and simulation;
+   keep it shadow-only until its turn intent and route matching are measured.
 
 ## Repository structure
 

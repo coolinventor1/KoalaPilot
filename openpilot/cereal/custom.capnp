@@ -10,13 +10,80 @@ $Cxx.namespace("cereal");
 # DO rename the structs
 # DON'T change the identifier (e.g. @0x81c2f05a394cf4af)
 
-struct CustomReserved0 @0x81c2f05a394cf4af {
+struct KoalaNavInstruction @0x81c2f05a394cf4af {
+  valid @0 :Bool;
+  routeId @1 :Text;
+  maneuver @2 :Maneuver;
+  distanceToManeuver @3 :Float32;  # meters, as reported by navigation provider
+  targetLatitude @4 :Float64;
+  targetLongitude @5 :Float64;
+  targetBearingDeg @6 :Float32;    # road bearing after the maneuver
+  sourceMonoTime @7 :UInt64;
+  roadName @8 :Text;
+
+  enum Maneuver {
+    none @0;
+    left @1;
+    right @2;
+    straight @3;
+    uTurn @4;
+  }
 }
 
-struct CustomReserved1 @0xaedffd8f31e7b55d {
+struct KoalaNavRoute @0xaedffd8f31e7b55d {
+  routeId @0 :Text;
+  revision @1 :UInt32;
+  coordinates @2 :List(Coordinate);
+  sourceMonoTime @3 :UInt64;
+
+  struct Coordinate {
+    latitude @0 :Float64;
+    longitude @1 :Float64;
+  }
 }
 
-struct CustomReserved2 @0xf35cc4560bbf6ec2 {
+struct KoalaNavPlan @0xf35cc4560bbf6ec2 {
+  enabled @0 :Bool;
+  mode @1 :Mode;
+  state @2 :State;
+  maneuver @3 :KoalaNavInstruction.Maneuver;
+  gpsValid @4 :Bool;
+  routeValid @5 :Bool;
+  instructionValid @6 :Bool;
+  routeMatched @7 :Bool;
+  controlAllowed @8 :Bool;  # deliberately false in the shadow-only foundation
+  latitude @9 :Float64;
+  longitude @10 :Float64;
+  horizontalAccuracy @11 :Float32;
+  speed @12 :Float32;
+  bearingDeg @13 :Float32;
+  distanceToManeuver @14 :Float32;
+  targetLatitude @15 :Float64;
+  targetLongitude @16 :Float64;
+  targetBearingDeg @17 :Float32;
+  turnAngleDeg @18 :Float32;
+  confidence @19 :Float32;
+  reason @20 :Text;
+  sourceMonoTime @21 :UInt64;
+  routeId @22 :Text;
+
+  enum Mode {
+    off @0;
+    shadow @1;
+    simulator @2;
+  }
+
+  enum State {
+    off @0;
+    waitingForGps @1;
+    waitingForRoute @2;
+    waitingForInstruction @3;
+    monitoring @4;
+    approach @5;
+    ready @6;
+    complete @7;
+    aborted @8;
+  }
 }
 
 struct CustomReserved3 @0xda96579883444c35 {
