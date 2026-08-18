@@ -19,6 +19,12 @@ ARROW_TIP_DISTANCE_M = 17.0
 ARROW_LENGTH_M = 8.0
 ARROW_WIDTH_M = 2.45
 ARROW_GLOW_WIDTH_M = 2.90
+TURN_ARROW_AFTER_MANEUVER_M = 10.0
+TURN_ARROW_LENGTH_M = 10.0
+TURN_ARROW_WIDTH_M = 12.0
+TURN_ARROW_GLOW_WIDTH_M = 14.0
+TURN_ARROW_MIN_SCREEN_WIDTH = 28.0
+TURN_ARROW_GLOW_MIN_SCREEN_WIDTH = 36.0
 PANEL_COLOR = rl.Color(0, 0, 0, 185)
 PANEL_BORDER_COLOR = rl.Color(55, 205, 255, 210)
 TEXT_COLOR = rl.Color(255, 255, 255, 255)
@@ -131,6 +137,22 @@ class KoalaNavRenderer(Widget):
 
     return prefix
 
+  @staticmethod
+  def _distance_along_path_nearest(points: list[tuple[float, float]], target: tuple[float, float]) -> float:
+    """Return path distance to the sampled point closest to a car-space target."""
+    nearest_distance = 0.0
+    nearest_error = float("inf")
+    distance_along = 0.0
+    previous = points[0]
+    for point in points:
+      distance_along += float(np.hypot(point[0] - previous[0], point[1] - previous[1]))
+      error = float(np.hypot(point[0] - target[0], point[1] - target[1]))
+      if error < nearest_error:
+        nearest_error = error
+        nearest_distance = distance_along
+      previous = point
+    return nearest_distance
+
   def _draw_road_ribbon(self, rect: rl.Rectangle, points: list[tuple[float, float]], height: float,
                         width_m: float, color: rl.Color) -> None:
     if len(points) < 2:
@@ -150,7 +172,7 @@ class KoalaNavRenderer(Widget):
       rl.draw_triangle(a1, b0, b1, color)
 
   def _draw_arrow_head(self, rect: rl.Rectangle, base: tuple[float, float], tip: tuple[float, float],
-                       height: float, width_m: float, color: rl.Color) -> None:
+                       height: float, width_m: float, color: rl.Color, min_screen_width: float = 0.0) -> None:
     tangent_forward = tip[0] - base[0]
     tangent_left = tip[1] - base[1]
     tangent_length = float(np.hypot(tangent_forward, tangent_left))
@@ -166,6 +188,15 @@ class KoalaNavRenderer(Widget):
                            base[1] - normal_left * half_width, height, rect)
     projected_tip = self._project(tip[0], tip[1], height, rect)
     if base_a is not None and base_b is not None and projected_tip is not None:
+      screen_width = float(np.hypot(base_a.x - base_b.x, base_a.y - base_b.y))
+      if 1e-3 < screen_width < min_screen_width:
+        center_x = (base_a.x + base_b.x) / 2.0
+        center_y = (base_a.y + base_b.y) / 2.0
+        scale = min_screen_width / screen_width
+        base_a = rl.Vector2(center_x + (base_a.x - center_x) * scale,
+                            center_y + (base_a.y - center_y) * scale)
+        base_b = rl.Vector2(center_x + (base_b.x - center_x) * scale,
+                            center_y + (base_b.y - center_y) * scale)
       rl.draw_triangle(base_a, base_b, projected_tip, color)
 
   def _draw_path(self, rect: rl.Rectangle, nav, height: float) -> None:
@@ -181,6 +212,16 @@ class KoalaNavRenderer(Widget):
     self._draw_arrow_head(rect, arrow_base, arrow_tip, height, ARROW_GLOW_WIDTH_M, PATH_GLOW_COLOR)
     self._draw_road_ribbon(rect, arrow_body, height, ARROW_BODY_WIDTH_M, PATH_COLOR)
     self._draw_arrow_head(rect, arrow_base, arrow_tip, height, ARROW_WIDTH_M, PATH_COLOR)
+
+    if nav.maneuverPointValid:
+      maneuver = (float(nav.maneuverForward), float(nav.maneuverLeft))
+      maneuver_distance = self._distance_along_path_nearest(points, maneuver)
+      turn_arrow_path = self._path_prefix(points, maneuver_distance + TURN_ARROW_AFTER_MANEUVER_M)
+      _, turn_arrow_base, turn_arrow_tip = self._split_for_arrow(turn_arrow_path, TURN_ARROW_LENGTH_M)
+      self._draw_arrow_head(rect, turn_arrow_base, turn_arrow_tip, height,
+                            TURN_ARROW_GLOW_WIDTH_M, PATH_GLOW_COLOR, TURN_ARROW_GLOW_MIN_SCREEN_WIDTH)
+      self._draw_arrow_head(rect, turn_arrow_base, turn_arrow_tip, height,
+                            TURN_ARROW_WIDTH_M, PATH_COLOR, TURN_ARROW_MIN_SCREEN_WIDTH)
 
   def _draw_instruction(self, rect: rl.Rectangle, nav) -> None:
     panel_width = min(460.0, rect.width - 60.0)
