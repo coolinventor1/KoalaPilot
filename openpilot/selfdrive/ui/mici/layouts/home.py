@@ -156,12 +156,17 @@ class MiciHomeLayout(Widget):
       self._mic_icon,
     ], spacing=18)
 
-    self._openpilot_label = UnifiedLabel("openpilot", font_size=96, font_weight=FontWeight.DISPLAY, max_width=480, wrap_text=False)
+    self._koala_label = UnifiedLabel("koala", font_size=96, font_weight=FontWeight.AFTER, max_width=300, wrap_text=False)
+    self._pilot_label = UnifiedLabel("pilot", font_size=96, font_weight=FontWeight.DISPLAY, max_width=200, wrap_text=False)
     self._version_label = UnifiedLabel("", font_size=36, font_weight=FontWeight.ROMAN, max_width=480, wrap_text=False)
     self._large_version_label = UnifiedLabel("", font_size=64, text_color=rl.GRAY, font_weight=FontWeight.ROMAN, max_width=480, wrap_text=False)
     self._date_label = UnifiedLabel("", font_size=36, text_color=rl.GRAY, font_weight=FontWeight.ROMAN, max_width=480, wrap_text=False)
     self._branch_label = UnifiedLabel("", font_size=36, text_color=rl.GRAY, font_weight=FontWeight.ROMAN, scroll=True)
     self._version_commit_label = UnifiedLabel("", font_size=36, text_color=rl.GRAY, font_weight=FontWeight.ROMAN, max_width=480, wrap_text=False)
+    self._koala_status_name_label = UnifiedLabel("KOALA", font_size=28, text_color=rl.Color(23, 216, 141, 255),
+                                                 font_weight=FontWeight.AFTER, max_width=120, wrap_text=False)
+    self._koala_status_online_label = UnifiedLabel("ONLINE", font_size=28, text_color=rl.Color(23, 216, 141, 255),
+                                                   font_weight=FontWeight.SEMI_BOLD, max_width=110, wrap_text=False)
 
   def _update_state(self):
     if self.is_pressed and not self._is_pressed_prev:
@@ -220,13 +225,15 @@ class MiciHomeLayout(Widget):
   def _render(self, _):
     # TODO: why is there extra space here to get it to be flush?
     text_pos = rl.Vector2(self.rect.x - 2 + HOME_PADDING, self.rect.y - 16)
-    self._openpilot_label.set_position(text_pos.x, text_pos.y)
-    self._openpilot_label.render()
+    self._koala_label.set_position(text_pos.x, text_pos.y)
+    self._koala_label.render()
+    self._pilot_label.set_position(text_pos.x + self._koala_label.text_width, text_pos.y)
+    self._pilot_label.render()
 
     if self._version_text is not None:
       # release branch
       release_branch = self._version_text[1] in RELEASE_BRANCHES
-      version_pos = rl.Rectangle(text_pos.x, text_pos.y + self._openpilot_label.font_size + 16, 100, 44)
+      version_pos = rl.Rectangle(text_pos.x, text_pos.y + self._koala_label.font_size + 16, 100, 44)
       self._version_label.set_text(self._version_text[0])
       self._version_label.set_position(version_pos.x, version_pos.y)
       self._version_label.render()
@@ -245,6 +252,16 @@ class MiciHomeLayout(Widget):
         self._version_commit_label.set_text(self._version_text[2])
         self._version_commit_label.set_position(version_pos.x, version_pos.y + self._date_label.font_size + 7)
         self._version_commit_label.render()
+
+    if ui_state.panda_type == log.PandaState.PandaType.koala:
+      status_gap = 7
+      status_width = self._koala_status_name_label.text_width + status_gap + self._koala_status_online_label.text_width
+      status_x = self.rect.x + self.rect.width - status_width - HOME_PADDING
+      status_y = self.rect.y + self.rect.height - 36
+      self._koala_status_name_label.set_position(status_x, status_y)
+      self._koala_status_name_label.render()
+      self._koala_status_online_label.set_position(status_x + self._koala_status_name_label.text_width + status_gap, status_y)
+      self._koala_status_online_label.render()
 
     # ***** Center-aligned bottom section icons *****
     self._experimental_icon.set_visible(ui_state.experimental_mode)

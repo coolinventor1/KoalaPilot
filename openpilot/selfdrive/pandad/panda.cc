@@ -13,10 +13,24 @@
 const bool PANDAD_MAXOUT = getenv("PANDAD_MAXOUT") != nullptr;
 
 Panda::Panda(std::string serial) {
-  handle = std::make_unique<PandaSpiHandle>(serial);
-  LOGW("connected to %s over SPI", serial.c_str());
+  if (KoalaDevice::requested()) {
+    handle = std::make_unique<KoalaUsbHandle>(serial);
+    koala_device = KoalaDevice::probe(*handle);
+    if (!koala_device.has_value()) {
+      throw std::runtime_error("Koala USB device did not return a valid KOAL hardware record");
+    }
+    const auto &info = koala_device->hardware_info();
+    LOGW("connected to Koala %s over USB: PCB %s, %u CAN channels, capabilities 0x%x",
+         handle->hw_serial.c_str(), koala_device->pcb_revision().c_str(), info.can_channel_count, info.capabilities);
+  } else {
+    handle = std::make_unique<PandaSpiHandle>(serial);
+    LOGW("connected to %s over SPI", handle->hw_serial.c_str());
+  }
 
-  hw_type = get_hw_type();
+  // Koala reports RED_PANDA over the legacy USB request for compatibility with
+  // existing Panda tools. Once its KOAL record has been verified, publish the
+  // native KoalaPilot type to the rest of openpilot.
+  hw_type = is_koala() ? cereal::PandaState::PandaType::KOALA : get_hw_type();
   can_reset_communications();
 }
 
@@ -33,7 +47,7 @@ std::string Panda::hw_serial() {
 }
 
 std::vector<std::string> Panda::list() {
-  return PandaSpiHandle::list();
+  return KoalaDevice::requested() ? KoalaUsbHandle::list() : PandaSpiHandle::list();
 }
 
 void Panda::set_safety_model(cereal::CarParams::SafetyModel safety_model, uint16_t safety_param) {

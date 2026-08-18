@@ -1,4 +1,5 @@
 import math
+import os
 from multiprocessing import Queue
 
 from metadrive.component.sensors.base_camera import _cuda_enable
@@ -58,12 +59,20 @@ class MetaDriveBridge(SimulatorBridge):
     self.test_duration = test_duration if self.test_run else math.inf
 
   def spawn_world(self, queue: Queue):
+    # Rendering the full 1928x1208 camera in software is prohibitively slow on
+    # many WSL desktops. Render fewer pixels and upscale before feeding modeld.
+    camera_downscale = int(os.getenv("SIM_CAMERA_DOWNSCALE", "1"))
+    if camera_downscale not in (1, 2, 4):
+      raise ValueError("SIM_CAMERA_DOWNSCALE must be 1, 2, or 4")
+    camera_w, camera_h = W // camera_downscale, H // camera_downscale
+    track_size = float(os.getenv("SIM_TRACK_SIZE", "200"))
+
     sensors = {
-      "rgb_road": (RGBCameraRoad, W, H, )
+      "rgb_road": (RGBCameraRoad, camera_w, camera_h, )
     }
 
     if self.dual_camera:
-      sensors["rgb_wide"] = (RGBCameraWide, W, H)
+      sensors["rgb_wide"] = (RGBCameraWide, camera_w, camera_h)
 
     config = {
       "use_render": self.should_render,
@@ -82,7 +91,7 @@ class MetaDriveBridge(SimulatorBridge):
       "crash_object_done": False,
       "arrive_dest_done": False,
       "traffic_density": 0.0, # traffic is incredibly expensive
-      "map_config": create_map(),
+      "map_config": create_map(track_size),
       "decision_repeat": 1,
       "physics_world_step_size": self.TICKS_PER_FRAME/100,
       "preload_models": False,

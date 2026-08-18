@@ -30,10 +30,11 @@ from openpilot.selfdrive.modeld.compile_modeld import make_input_queues, WARP_IN
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_driving_model_data, fill_pose_msg, PublishState
 from openpilot.common.file_chunker import open_file_chunked
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
-from openpilot.selfdrive.modeld.helpers import usbgpu_present, usbgpu_compiled, modeld_pkl_path, get_tg_input_devices, load_oob
+from openpilot.selfdrive.modeld.helpers import MODELS_DIR, usbgpu_present, usbgpu_compiled, modeld_pkl_path, get_tg_input_devices, load_oob
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld"
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
+USE_ONNX_RUNTIME = os.getenv('MODEL_ONNX_RUNTIME') == '1'
 
 LAT_SMOOTH_SECONDS = 0.0
 LONG_SMOOTH_SECONDS = 0.3
@@ -158,6 +159,47 @@ class ModelState:
     self.run_policy = jits['run_policy']
     self.warp = jits[(cam_w,cam_h)]
 
+    self.ort_session = None
+    if USE_ONNX_RUNTIME and not usbgpu:
+      import onnxruntime as ort
+      providers = [('OpenVINOExecutionProvider', {'device_type': 'CPU'}), 'CPUExecutionProvider']
+      self.ort_session = ort.InferenceSession(str(MODELS_DIR / 'driving_supercombo.onnx'), providers=providers)
+      self._reset_ort_queues()
+
+  def _reset_ort_queues(self) -> None:
+    img = self.input_shapes['img']
+    features = self.input_shapes['features_buffer']
+    desire = self.input_shapes['desire_pulse']
+    image_queue_len = self.frame_skip * (img[1] // 6 - 1) + 1
+    self.ort_img_q = np.zeros((image_queue_len, 6, img[2], img[3]), dtype=np.uint8)
+    self.ort_big_img_q = np.zeros_like(self.ort_img_q)
+    self.ort_feat_q = np.zeros((self.frame_skip * features[1], features[0], features[2]), dtype=np.float32)
+    self.ort_desire_q = np.zeros((self.frame_skip * desire[1], desire[0], desire[2]), dtype=np.float32)
+
+  def run_policy_ort(self, warped: Tensor) -> np.ndarray:
+    frames = warped.numpy()
+    self.ort_img_q[:-1] = self.ort_img_q[1:]
+    self.ort_img_q[-1] = frames[0]
+    self.ort_big_img_q[:-1] = self.ort_big_img_q[1:]
+    self.ort_big_img_q[-1] = frames[1]
+
+    self.ort_feat_q[:-1] = self.ort_feat_q[1:]
+    self.ort_feat_q[-1] = self.npy['prev_feat']
+    self.ort_desire_q[:-1] = self.ort_desire_q[1:]
+    self.ort_desire_q[-1] = self.npy['desire']
+
+    desire_shape = self.input_shapes['desire_pulse']
+    desire_buffer = self.ort_desire_q.reshape(desire_shape[1], self.frame_skip, desire_shape[0], desire_shape[2])
+    inputs = {
+      'img': self.ort_img_q[::self.frame_skip].reshape(self.input_shapes['img']),
+      'big_img': self.ort_big_img_q[::self.frame_skip].reshape(self.input_shapes['big_img']),
+      'features_buffer': self.ort_feat_q[::self.frame_skip].reshape(self.input_shapes['features_buffer']).astype(np.float16),
+      'desire_pulse': desire_buffer.max(axis=1).reshape(desire_shape).astype(np.float16),
+      'traffic_convention': self.npy['traffic_convention'].astype(np.float16),
+      'action_t': self.npy['action_t'].astype(np.float16),
+    }
+    return self.ort_session.run(None, inputs)[0].astype(np.float32)
+
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:
     parsed_model_outputs = {k: model_outputs[np.newaxis, v] for k,v in output_slices.items()}
     return parsed_model_outputs
@@ -184,10 +226,13 @@ class ModelState:
 
     warped = self.warp(**{k: self.input_queues[k] for k in WARP_INPUTS}, frame=self.full_frames['img'], big_frame=self.full_frames['big_img'])
 
-    outs, = self.run_policy(
-      **{k: self.input_queues[k] for k in POLICY_INPUTS if k in self.input_queues}, warped=warped
-    )
-    model_output = outs.numpy()[0]
+    if self.ort_session is not None:
+      model_output = self.run_policy_ort(warped)[0]
+    else:
+      outs, = self.run_policy(
+        **{k: self.input_queues[k] for k in POLICY_INPUTS if k in self.input_queues}, warped=warped
+      )
+      model_output = outs.numpy()[0]
     if self.usbgpu and not np.all(np.isfinite(model_output)):
       # TODO remove with prev_feat
       cloudlog.error("model output not finite, dropping frame")
@@ -205,6 +250,8 @@ class ModelState:
     dims = {'desire_pulse': ModelConstants.DESIRE_LEN, 'traffic_convention': 2, 'action_t': 2}
     self.run(dummy_frames, dict.fromkeys(self.vision_input_names, eye), {k: np.zeros(v, dtype=np.float32) for k, v in dims.items()})
     self.input_queues, self.npy = make_input_queues(self.input_shapes, self.frame_skip, device=self.QUEUE_DEV)
+    if self.ort_session is not None:
+      self._reset_ort_queues()
     self.prev_desire[:] = 0
     self.full_frames.clear()
     self._blob_cache.clear()

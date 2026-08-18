@@ -1,6 +1,9 @@
 import math
+import os
 import time
 import numpy as np
+from PIL import Image
+from metadrive.policy.idm_policy import IDMPolicy
 
 from collections import namedtuple
 from panda3d.core import Vec3
@@ -60,6 +63,8 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
     wide_road_image = np.frombuffer(wide_camera_array.get_obj(), dtype=np.uint8).reshape((H, W, 3))
 
   env = MetaDriveEnv(config)
+  lane_assist = os.getenv("SIM_LANE_ASSIST", "1") == "1"
+  lane_policy = None
 
   def get_current_lane_info(vehicle):
     _, lane_info, on_lane = vehicle.navigation._get_current_lane(vehicle)
@@ -67,8 +72,12 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
     return lane_idx, on_lane
 
   def reset():
+    nonlocal lane_policy
     env.reset()
-    env.vehicle.config["max_speed_km_h"] = 1000
+    env.vehicle.config["max_speed_km_h"] = float(os.getenv("SIM_MAX_SPEED_KPH", "35"))
+    lane_policy = IDMPolicy(env.vehicle, random_seed=0) if lane_assist else None
+    if lane_policy is not None:
+      lane_policy.enable_lane_change = False
     lane_idx_prev, _ = get_current_lane_info(env.vehicle)
 
     simulation_state = metadrive_simulation_state(
@@ -91,6 +100,8 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
     img = cam.perceive(to_float=False)
     if not isinstance(img, np.ndarray):
       img = img.get() # convert cupy array to numpy
+    if img.shape[:2] != (H, W):
+      img = np.asarray(Image.fromarray(img).resize((W, H), Image.Resampling.BILINEAR))
     return img
 
   rk = Ratekeeper(100, None)
@@ -113,6 +124,8 @@ def metadrive_process(dual_camera: bool, config: dict, camera_array, wide_camera
 
       steer_metadrive = steer_angle * 1 / (env.vehicle.MAX_STEERING * steer_ratio)
       steer_metadrive = np.clip(steer_metadrive, -1, 1)
+      if lane_policy is not None:
+        steer_metadrive = lane_policy.act()[0]
 
       vc = [steer_metadrive, gas]
 

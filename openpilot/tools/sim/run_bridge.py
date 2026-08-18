@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
 import argparse
+import os
+from pathlib import Path
+
+# WSL defaults to the very slow llvmpipe renderer on some Intel systems even
+# when GPU passthrough is available. Select Mesa's D3D12 driver before Panda3D
+# is imported, and use a lower-cost camera unless explicitly overridden.
+if Path("/dev/dxg").exists():
+  os.environ.setdefault("GALLIUM_DRIVER", "d3d12")
+os.environ.setdefault("SIM_CAMERA_DOWNSCALE", "2")
 
 from typing import Any
 from multiprocessing import Queue
