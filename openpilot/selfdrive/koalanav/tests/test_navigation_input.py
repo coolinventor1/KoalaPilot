@@ -45,4 +45,8 @@ def test_published_shadow_plan_has_no_control_authority():
   assert pm.message.which() == "koalaNavPlan"
   assert pm.message.koalaNavPlan.mode == "shadow"
   assert pm.message.koalaNavPlan.routeId == "route-42"
+  assert pm.message.koalaNavPlan.shadowPathValid
+  assert len(pm.message.koalaNavPlan.shadowPath) >= 2
+  assert pm.message.koalaNavPlan.roadName == ""
+  assert pm.message.koalaNavPlan.maneuverPointValid
   assert not pm.message.koalaNavPlan.controlAllowed

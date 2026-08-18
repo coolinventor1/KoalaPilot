@@ -47,6 +47,11 @@ def test_gps_and_route_produce_approach_plan():
   assert abs(plan.distance_to_maneuver - expected_distance) < 0.01
   assert plan.turn_angle_deg == 90.0
   assert plan.confidence > 0.8
+  assert len(plan.shadow_path) >= 2
+  assert plan.shadow_path[0].forward == 0.0
+  assert plan.shadow_path[0].left == 0.0
+  assert plan.road_name == "Test Road"
+  assert plan.maneuver_point is not None
   assert not plan.control_allowed
 
 

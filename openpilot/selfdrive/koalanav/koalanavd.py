@@ -61,6 +61,14 @@ def _publish(pm: messaging.PubMaster, plan) -> None:
   msg.reason = plan.reason
   msg.sourceMonoTime = plan.source_mono_time
   msg.routeId = plan.route_id
+  msg.shadowPathValid = len(plan.shadow_path) >= 2
+  msg.shadowPath = [{"forward": point.forward, "left": point.left} for point in plan.shadow_path]
+  msg.shadowPathLength = plan.shadow_path_length
+  msg.roadName = plan.road_name
+  msg.maneuverPointValid = plan.maneuver_point is not None
+  if plan.maneuver_point is not None:
+    msg.maneuverForward = plan.maneuver_point.forward
+    msg.maneuverLeft = plan.maneuver_point.left
   pm.send("koalaNavPlan", dat)
 
 

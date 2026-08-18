@@ -10,6 +10,7 @@ MAX_GPS_ACCURACY_M = 25.0
 MAX_ROUTE_OFFSET_M = 40.0
 APPROACH_DISTANCE_M = 80.0
 READY_DISTANCE_M = 20.0
+SHADOW_PATH_DISTANCE_M = 150.0
 
 
 class Maneuver(StrEnum):
@@ -36,6 +37,19 @@ class PlanState(StrEnum):
 class Coordinate:
   latitude: float
   longitude: float
+
+
+@dataclass(frozen=True)
+class RelativePathPoint:
+  forward: float
+  left: float
+
+
+@dataclass(frozen=True)
+class ShadowPathPreview:
+  points: tuple[RelativePathPoint, ...]
+  length_m: float
+  maneuver_point: RelativePathPoint | None
 
 
 @dataclass(frozen=True)
@@ -94,6 +108,10 @@ class KoalaNavPlan:
   reason: str
   source_mono_time: int
   route_id: str
+  shadow_path: tuple[RelativePathPoint, ...] = ()
+  shadow_path_length: float = 0.0
+  road_name: str = ""
+  maneuver_point: RelativePathPoint | None = None
 
 
 def valid_coordinate(point: Coordinate) -> bool:
@@ -109,6 +127,102 @@ def haversine_distance(a: Coordinate, b: Coordinate) -> float:
   d_lon = math.radians(b.longitude - a.longitude)
   h = math.sin(d_lat / 2.0) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(d_lon / 2.0) ** 2
   return 2.0 * EARTH_RADIUS_M * math.asin(min(1.0, math.sqrt(h)))
+
+
+def coordinate_to_car_frame(origin: Coordinate, bearing_deg: float, point: Coordinate) -> RelativePathPoint:
+  """Convert a nearby WGS84 point to openpilot car space: x forward, y left."""
+  latitude = math.radians(origin.latitude)
+  north = EARTH_RADIUS_M * math.radians(point.latitude - origin.latitude)
+  east = EARTH_RADIUS_M * math.cos(latitude) * math.radians(point.longitude - origin.longitude)
+  bearing = math.radians(bearing_deg)
+  forward = east * math.sin(bearing) + north * math.cos(bearing)
+  left = -east * math.cos(bearing) + north * math.sin(bearing)
+  return RelativePathPoint(forward, left)
+
+
+def _interpolate_coordinate(start: Coordinate, end: Coordinate, fraction: float) -> Coordinate:
+  return Coordinate(
+    start.latitude + (end.latitude - start.latitude) * fraction,
+    start.longitude + (end.longitude - start.longitude) * fraction,
+  )
+
+
+def _nearest_route_position(position: Coordinate, bearing_deg: float,
+                            route: tuple[Coordinate, ...]) -> tuple[int, Coordinate]:
+  best_distance = math.inf
+  best_segment_index = 0
+  best_position = route[0]
+
+  for index, (start, end) in enumerate(zip(route, route[1:], strict=False)):
+    start_relative = coordinate_to_car_frame(position, bearing_deg, start)
+    end_relative = coordinate_to_car_frame(position, bearing_deg, end)
+    delta_forward = end_relative.forward - start_relative.forward
+    delta_left = end_relative.left - start_relative.left
+    length_squared = delta_forward ** 2 + delta_left ** 2
+    if length_squared <= 1e-6:
+      continue
+
+    fraction = max(0.0, min(1.0, -(
+      start_relative.forward * delta_forward + start_relative.left * delta_left
+    ) / length_squared))
+    closest_forward = start_relative.forward + fraction * delta_forward
+    closest_left = start_relative.left + fraction * delta_left
+    distance = math.hypot(closest_forward, closest_left)
+    if distance < best_distance:
+      best_distance = distance
+      best_segment_index = index
+      best_position = _interpolate_coordinate(start, end, fraction)
+
+  return best_segment_index, best_position
+
+
+def route_offset(position: Coordinate, route: tuple[Coordinate, ...]) -> float:
+  if len(route) < 2:
+    return math.inf
+  _, nearest_position = _nearest_route_position(position, 0.0, route)
+  return haversine_distance(position, nearest_position)
+
+
+def build_shadow_path(position: Coordinate, bearing_deg: float, route: tuple[Coordinate, ...],
+                      maneuver_target: Coordinate | None = None,
+                      max_distance_m: float = SHADOW_PATH_DISTANCE_M) -> ShadowPathPreview:
+  """Extract and transform the next route segment without producing control commands."""
+  if len(route) < 2 or not math.isfinite(bearing_deg) or max_distance_m <= 0.0:
+    return ShadowPathPreview((), 0.0, None)
+
+  segment_index, route_position = _nearest_route_position(position, bearing_deg, route)
+  selected = [route_position]
+  length_m = 0.0
+
+  for next_point in route[segment_index + 1:]:
+    segment_start = selected[-1]
+    segment_length = haversine_distance(segment_start, next_point)
+    if segment_length <= 1e-3:
+      continue
+
+    remaining = max_distance_m - length_m
+    if segment_length > remaining:
+      selected.append(_interpolate_coordinate(segment_start, next_point, remaining / segment_length))
+      length_m = max_distance_m
+      break
+
+    selected.append(next_point)
+    length_m += segment_length
+    if length_m >= max_distance_m:
+      break
+
+  points = tuple(coordinate_to_car_frame(position, bearing_deg, point) for point in selected)
+  if len(points) < 2:
+    return ShadowPathPreview((), 0.0, None)
+
+  maneuver_point = None
+  if maneuver_target is not None:
+    relative_target = coordinate_to_car_frame(position, bearing_deg, maneuver_target)
+    target_on_preview = route_offset(maneuver_target, tuple(selected)) <= 1.0
+    if relative_target.forward >= -5.0 and target_on_preview:
+      maneuver_point = relative_target
+
+  return ShadowPathPreview(points, length_m, maneuver_point)
 
 
 def signed_bearing_delta(target_deg: float, current_deg: float) -> float:
@@ -195,9 +309,11 @@ class KoalaNavPlanner:
 
     current = Coordinate(gps.latitude, gps.longitude)
     distance_to_target = haversine_distance(current, instruction.target)
-    current_route_offset = min(haversine_distance(current, point) for point in route.coordinates)
-    target_route_offset = min(haversine_distance(instruction.target, point) for point in route.coordinates)
+    current_route_offset = route_offset(current, route.coordinates)
+    target_route_offset = route_offset(instruction.target, route.coordinates)
     route_matched = current_route_offset <= MAX_ROUTE_OFFSET_M and target_route_offset <= MAX_ROUTE_OFFSET_M
+    shadow_path = build_shadow_path(current, gps.bearing_deg, route.coordinates, instruction.target) if route_matched \
+      else ShadowPathPreview((), 0.0, None)
     # Local import avoids a module cycle while keeping turn intent isolated from the route/GPS fusion code.
     from openpilot.selfdrive.koalanav.turn_desire import derive_turn_desire
     turn_desire = derive_turn_desire(instruction.maneuver, gps.bearing_deg, instruction.target_bearing_deg)
@@ -252,4 +368,8 @@ class KoalaNavPlanner:
       reason=reason,
       source_mono_time=max(gps.source_mono_time, route.source_mono_time, instruction.source_mono_time),
       route_id=route.route_id,
+      shadow_path=shadow_path.points,
+      shadow_path_length=shadow_path.length_m,
+      road_name=instruction.road_name,
+      maneuver_point=shadow_path.maneuver_point,
     )

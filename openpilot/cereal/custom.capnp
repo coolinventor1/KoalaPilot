@@ -66,6 +66,18 @@ struct KoalaNavPlan @0xf35cc4560bbf6ec2 {
   reason @20 :Text;
   sourceMonoTime @21 :UInt64;
   routeId @22 :Text;
+  shadowPathValid @23 :Bool;       # visualization only; never an actuator request
+  shadowPath @24 :List(PathPoint); # car space: x forward, y left, meters
+  shadowPathLength @25 :Float32;
+  roadName @26 :Text;
+  maneuverPointValid @27 :Bool;
+  maneuverForward @28 :Float32;
+  maneuverLeft @29 :Float32;
+
+  struct PathPoint {
+    forward @0 :Float32;
+    left @1 :Float32;
+  }
 
   enum Mode {
     off @0;

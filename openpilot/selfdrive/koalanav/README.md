@@ -16,6 +16,8 @@ The route and instruction carry the same content-derived route ID. GPS accuracy 
 
 `koalaNavPlan` reports the fused state (`monitoring`, `approach`, `ready`, or a waiting/aborted state), GPS-derived distance to the turn, signed turn angle, route match, and confidence. `controlAllowed` is unconditionally false.
 
+The plan also carries a shadow-only preview of up to 150 m of route geometry in openpilot car coordinates (`forward`, `left`). The on-road UI draws this as a cyan route line, marks the upcoming maneuver when it falls inside the preview, and shows the maneuver distance and road name. These fields are visualization data only and are not subscribed to by `controlsd`, `plannerd`, `carControl`, or the Koala CAN path.
+
 `turn_desire.py` translates the navigation maneuver and incoming/outgoing road bearings into a checked high-level turn intent. It deliberately has no curvature, steering-torque, or actuator fields, keeping KoalaNav independent from normal openpilot driving.
 
 ## Navigation speech

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from openpilot.selfdrive.koalanav.mapbox import MapboxRoute, MapboxStep
-from openpilot.selfdrive.koalanav.planner import Coordinate, haversine_distance
+from openpilot.selfdrive.koalanav.planner import Coordinate, haversine_distance, route_offset
 
 
 @dataclass
@@ -38,4 +38,4 @@ class NavigationSession:
     return step
 
   def route_offset(self, position: Coordinate) -> float:
-    return min(haversine_distance(position, point) for point in self.route.coordinates)
+    return route_offset(position, self.route.coordinates)
