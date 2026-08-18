@@ -11,6 +11,7 @@ MAX_ROUTE_OFFSET_M = 40.0
 APPROACH_DISTANCE_M = 80.0
 READY_DISTANCE_M = 20.0
 SHADOW_PATH_DISTANCE_M = 150.0
+SHADOW_PATH_STEP_M = 5.0
 
 
 class Maneuver(StrEnum):
@@ -183,6 +184,22 @@ def route_offset(position: Coordinate, route: tuple[Coordinate, ...]) -> float:
   return haversine_distance(position, nearest_position)
 
 
+def _resample_route(route: list[Coordinate], step_m: float = SHADOW_PATH_STEP_M) -> tuple[Coordinate, ...]:
+  if len(route) < 2 or step_m <= 0.0:
+    return tuple(route)
+
+  resampled = [route[0]]
+  for start, end in zip(route, route[1:], strict=False):
+    segment_length = haversine_distance(start, end)
+    distance = step_m
+    while distance < segment_length:
+      resampled.append(_interpolate_coordinate(start, end, distance / segment_length))
+      distance += step_m
+    if haversine_distance(resampled[-1], end) > 1e-3:
+      resampled.append(end)
+  return tuple(resampled)
+
+
 def build_shadow_path(position: Coordinate, bearing_deg: float, route: tuple[Coordinate, ...],
                       maneuver_target: Coordinate | None = None,
                       max_distance_m: float = SHADOW_PATH_DISTANCE_M) -> ShadowPathPreview:
@@ -211,7 +228,8 @@ def build_shadow_path(position: Coordinate, bearing_deg: float, route: tuple[Coo
     if length_m >= max_distance_m:
       break
 
-  points = tuple(coordinate_to_car_frame(position, bearing_deg, point) for point in selected)
+  preview_route = _resample_route(selected)
+  points = tuple(coordinate_to_car_frame(position, bearing_deg, point) for point in preview_route)
   if len(points) < 2:
     return ShadowPathPreview((), 0.0, None)
 

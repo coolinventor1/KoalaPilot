@@ -25,7 +25,7 @@ def test_shadow_path_is_capped_at_150_meters_and_marks_maneuver():
   preview = build_shadow_path(ORIGIN, 0.0, route, maneuver)
 
   assert preview.length_m == pytest.approx(150.0, abs=0.01)
-  assert len(preview.points) == 3
+  assert len(preview.points) >= 30
   assert preview.points[-1].forward == pytest.approx(150.0, abs=0.2)
   assert preview.points[-1].left == pytest.approx(0.0, abs=0.01)
   assert preview.maneuver_point is not None
@@ -47,8 +47,9 @@ def test_preview_starts_at_projection_on_sparse_route_segment():
 
   preview = build_shadow_path(position, 0.0, route)
 
-  assert len(preview.points) == 2
+  assert len(preview.points) >= 12
   assert preview.points[0].forward == pytest.approx(0.0, abs=0.05)
   assert preview.points[0].left == pytest.approx(0.0, abs=0.05)
-  assert preview.points[1].forward == pytest.approx(55.60, abs=0.2)
+  assert preview.points[1].forward == pytest.approx(5.0, abs=0.2)
+  assert preview.points[-1].forward == pytest.approx(55.60, abs=0.2)
   assert route_offset(position, route) == pytest.approx(0.0, abs=0.05)
